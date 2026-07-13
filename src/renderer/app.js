@@ -127,7 +127,7 @@ function renderRemotes() {
     : '<div class="remote-item"><span class="remote-glyph">—</span><span>Aucun distant</span></div>';
 }
 
-const GRAPH_COLORS = ['#e95f36', '#3c91d4', '#57a773', '#d8a62a', '#d36b9d', '#8a77cf', '#39a6a3', '#c47b42'];
+const GRAPH_COLORS = ['#3c91d4', '#57b88a', '#8a77cf', '#39a6a3', '#5f7fe8', '#74b96f', '#9b6fd0', '#3aa7c4'];
 
 function graphColor(lane) {
   return GRAPH_COLORS[lane % GRAPH_COLORS.length];
@@ -160,7 +160,6 @@ function graphLabelDetails(commit, branchColor) {
     const iconTypes = [branch.current ? 'current' : null, 'local'].filter(Boolean);
     if (sync?.state === 'gone') iconTypes.push('warning');
     else if (matchingRemote?.hash === branch.hash) iconTypes.push('remote');
-    if (sync?.state === 'ahead') iconTypes.push('ahead');
     if (sync?.state === 'behind') iconTypes.push('behind');
     if (sync?.state === 'diverged') iconTypes.push('diverged');
 
@@ -253,7 +252,7 @@ function renderWorkingTreeRow(node, laneCount, graphWidth, changeCount) {
 }
 
 function graphLabelWidth(label) {
-  return Math.min(210, Math.max(48, label.name.length * 6.1 + 21 + label.iconTypes.length * 14));
+  return Math.min(220, Math.max(52, label.name.length * 6.6 + 23 + label.iconTypes.length * 15));
 }
 
 function graphLaneWidth(laneCount) {
@@ -261,7 +260,7 @@ function graphLaneWidth(laneCount) {
 }
 
 function graphLabelGroupMetrics(labels) {
-  const rowHeight = 18;
+  const rowHeight = 20;
   const rowGap = 2;
   return {
     width: labels.reduce((maxWidth, label) => Math.max(maxWidth, graphLabelWidth(label)), 0),
@@ -279,17 +278,17 @@ function graphLabelGroupMarkup(labels, nodeX, nodeY, color) {
   const rows = labels.map((label, index) => {
     const labelY = groupY + index * (metrics.rowHeight + metrics.rowGap);
     const isCurrent = label.iconTypes.includes('current');
-    const nameX = labelStart + 14 + (isCurrent ? 14 : 0);
-    const iconStart = nameX + label.name.length * 6.1 + 3;
-    const icons = label.iconTypes.filter((type) => type !== 'current').map((type, iconIndex) => graphIconMarkup(type, iconStart + iconIndex * 14, labelY + 4, label.color)).join('');
+    const nameX = labelStart + 15 + (isCurrent ? 15 : 0);
+    const iconStart = nameX + label.name.length * 6.6 + 4;
+    const icons = label.iconTypes.filter((type) => type !== 'current').map((type, iconIndex) => graphIconMarkup(type, iconStart + iconIndex * 15, labelY + 5, label.color)).join('');
     return `<g class="branch-label ${label.type}">
       <rect x="${labelStart}" y="${labelY}" width="${metrics.width}" height="${metrics.rowHeight}" rx="3" fill="${label.color}" fill-opacity=".12" stroke="${label.color}"/>
-      <title>${escapeHtml(label.syncTooltip)}</title>
-      ${isCurrent ? graphIconMarkup('current', labelStart + 3, labelY + 4, label.color) : ''}<text x="${nameX}" y="${labelY + 12.5}" fill="${label.color}">${escapeHtml(label.name)}</text>${icons}
+      <title>${escapeHtml(label.tooltip)}</title>
+      ${isCurrent ? graphIconMarkup('current', labelStart + 3, labelY + 5, label.color) : ''}<text x="${nameX}" y="${labelY + 14}" fill="${label.color}">${escapeHtml(label.name)}</text>${icons}
     </g>`;
   }).join('');
   const connectorY = nodeY;
-  return `<g class="branch-label-group" font-family="${escapeHtml('Nimbus Sans, Liberation Sans, sans-serif')}" font-size="9" font-weight="700">
+  return `<g class="branch-label-group" font-family="${escapeHtml('Nimbus Sans, Liberation Sans, sans-serif')}" font-size="10" font-weight="700">
     <path class="branch-label-link" d="M ${labelStart + metrics.width} ${connectorY} H ${nodeX}" stroke="${color}"/>
     ${rows}
   </g>`;

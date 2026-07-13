@@ -9,7 +9,7 @@ function branchSyncState(branch, remoteHash = null) {
   }
   const suffix = `${tracking.ahead} commit${tracking.ahead > 1 ? 's' : ''} à pousser, ${tracking.behind} commit${tracking.behind > 1 ? 's' : ''} à récupérer`;
   if (tracking.state === 'diverged') return { state: 'diverged', icons: ['💻', '🔄'], tooltip: `Branche suivie par ${upstream}. Divergence : ${suffix}` };
-  if (tracking.state === 'ahead') return { state: 'ahead', icons: ['💻', '⬆️'], tooltip: `Branche suivie par ${upstream}. ${suffix}` };
+  if (tracking.state === 'ahead') return { state: 'ahead', icons: ['💻'], tooltip: `Branche suivie par ${upstream}. ${suffix}` };
   if (tracking.state === 'behind') return { state: 'behind', icons: ['💻', '⬇️'], tooltip: `Branche suivie par ${upstream}. ${suffix}` };
   if (remoteHash && branch.hash === remoteHash) return { state: 'up-to-date', icons: ['💻', '☁️'], tooltip: `Branche suivie par ${upstream}, à jour avec le dépôt distant` };
   return { state: 'unknown', icons: ['💻'], tooltip: `Branche suivie par ${upstream}` };

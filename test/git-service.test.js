@@ -22,7 +22,7 @@ test('parses branch synchronization states', () => {
 
 test('does not mark an unpushed commit as remote', () => {
   const result = branchSyncState({ name: 'master', hash: 'B', upstream: 'origin/master', tracking: { state: 'ahead', ahead: 1, behind: 0 } }, 'A');
-  assert.deepEqual(result.icons, ['💻', '⬆️']);
+  assert.deepEqual(result.icons, ['💻']);
   assert.equal(result.state, 'ahead');
 });
 
