@@ -92,6 +92,7 @@
           <p>Les détails d’un commit ou le diff d’un fichier apparaîtront ici.</p>
         </div>
         <div id="commit-detail" class="commit-detail hidden"></div>
+        <div id="worktree-detail" class="worktree-detail hidden"></div>
         <div id="diff-detail" class="diff-detail hidden">
           <header><div><p class="eyebrow">DIFFÉRENCE</p><h3 id="diff-file"></h3></div><button id="diff-action" class="button button-small"></button></header>
           <pre id="diff-content"></pre>
@@ -110,6 +111,7 @@
       </form>
     </dialog>
     <script src="graph-layout.js"></script>
+    <script src="../branch-sync.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

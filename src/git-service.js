@@ -87,8 +87,8 @@ class GitService {
   }
 
   async snapshot() {
-    const [status, commits, branches, remotes, head, headHash, repository] = await Promise.all([
-      this.status(),
+    let [status, commits, branches, remotes, head, headHash, repository] = await Promise.all([
+      this.worktreeStatus(),
       this.commits(),
       this.branches(),
       this.remotes(),
@@ -144,6 +144,16 @@ class GitService {
     const ahead = Number(branchLine.match(/ahead (\d+)/)?.[1] || 0);
     const behind = Number(branchLine.match(/behind (\d+)/)?.[1] || 0);
     return { files, ahead, behind };
+  }
+
+  async worktreeStatus() {
+    let status = await this.status();
+    const mixedFiles = status.files.filter((file) => file.staged && file.workingTree !== ' ' && !file.untracked).map((file) => file.path);
+    if (mixedFiles.length) {
+      await this.unstage(mixedFiles);
+      status = await this.status();
+    }
+    return status;
   }
 
   async commits(limit = 160) {
@@ -279,6 +289,22 @@ class GitService {
   async unstage(files) {
     this.assertFileList(files);
     return this.run(['restore', '--staged', '--', ...files]);
+  }
+
+  async applyHunk(patch, staged = false, reverse = false) {
+    if (typeof patch !== 'string' || !patch.trim()) throw new GitError('Hunk invalide.');
+    try {
+      await execFileAsync('git', ['-C', this.repoPath, 'apply', ...(staged ? ['--cached'] : []), ...(reverse ? ['--reverse'] : [])], {
+        input: patch,
+        encoding: 'utf8',
+        maxBuffer: 20 * 1024 * 1024,
+        env: { ...process.env, LC_ALL: 'C.UTF-8' },
+      });
+    } catch (error) {
+      const details = String(error.stderr || error.stdout || '').trim();
+      throw new GitError(frenchGitError(details, 'Impossible d’appliquer ce hunk.'), details);
+    }
+    return true;
   }
 
   assertFileList(files) {

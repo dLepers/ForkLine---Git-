@@ -2,11 +2,13 @@ const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { GitService } = require('./git-service');
+const { RepositoryWatcher } = require('./repository-watcher');
 
 const git = new GitService();
 let mainWindow;
-let watcher;
-let refreshTimer;
+const repositoryWatcher = new RepositoryWatcher(git, (snapshot) => {
+  BrowserWindow.getAllWindows().forEach((window) => window.webContents.send('repository:updated', snapshot));
+});
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -67,26 +69,11 @@ async function readRememberedRepository() {
   }
 }
 
-function watchRepository(repository) {
-  watcher?.close();
-  watcher = null;
-
-  try {
-    watcher = require('node:fs').watch(repository, { recursive: true }, (_event, filename) => {
-      if (filename?.includes('node_modules')) return;
-      clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => mainWindow?.webContents.send('repository:changed'), 500);
-    });
-  } catch {
-    // Manual refresh remains available on filesystems without recursive watches.
-  }
-}
-
 async function openRepository(repository) {
   const root = await git.open(repository);
   await rememberRepository(root);
-  watchRepository(root);
-  return git.snapshot();
+  const snapshot = await git.snapshot();
+  return repositoryWatcher.start(root, snapshot);
 }
 
 app.whenReady().then(() => {
@@ -104,16 +91,17 @@ app.whenReady().then(() => {
     const repository = await readRememberedRepository();
     return repository ? openRepository(repository) : null;
   });
-  handle('repository:refresh', () => git.snapshot());
+  handle('repository:refresh', () => repositoryWatcher.refresh());
   handle('repository:diff', (file, staged) => git.diff(file, staged));
-  handle('repository:stage', async (files) => { await git.stage(files); return git.snapshot(); });
-  handle('repository:unstage', async (files) => { await git.unstage(files); return git.snapshot(); });
-  handle('repository:commit', async (message) => { const output = await git.commit(message); return { output, snapshot: await git.snapshot() }; });
-  handle('repository:switch', async (name) => { await git.switchBranch(name); return git.snapshot(); });
-  handle('repository:create-branch', async (name) => { await git.createBranch(name); return git.snapshot(); });
-  handle('repository:fetch', async () => { const output = await git.fetch(); return { output, snapshot: await git.snapshot() }; });
-  handle('repository:pull', async () => { const output = await git.pull(); return { output, snapshot: await git.snapshot() }; });
-  handle('repository:push', async () => { const output = await git.push(); return { output, snapshot: await git.snapshot() }; });
+  handle('repository:stage', async (files) => (await repositoryWatcher.mutate(() => git.stage(files))).snapshot);
+  handle('repository:unstage', async (files) => (await repositoryWatcher.mutate(() => git.unstage(files))).snapshot);
+  handle('repository:apply-hunk', async (patch, staged, reverse) => (await repositoryWatcher.mutate(() => git.applyHunk(patch, staged, reverse))).snapshot);
+  handle('repository:commit', async (message) => repositoryWatcher.mutate(() => git.commit(message)));
+  handle('repository:switch', async (name) => (await repositoryWatcher.mutate(() => git.switchBranch(name))).snapshot);
+  handle('repository:create-branch', async (name) => (await repositoryWatcher.mutate(() => git.createBranch(name))).snapshot);
+  handle('repository:fetch', async () => repositoryWatcher.mutate(() => git.fetch()));
+  handle('repository:pull', async () => repositoryWatcher.mutate(() => git.pull()));
+  handle('repository:push', async () => repositoryWatcher.mutate(() => git.push()));
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -121,6 +109,6 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  watcher?.close();
+  repositoryWatcher.stop();
   if (process.platform !== 'darwin') app.quit();
 });

@@ -10,11 +10,12 @@ contextBridge.exposeInMainWorld('forkline', {
   diff: (file, staged) => invoke('repository:diff', file, staged),
   stage: (files) => invoke('repository:stage', files),
   unstage: (files) => invoke('repository:unstage', files),
+  applyHunk: (patch, staged, reverse) => invoke('repository:apply-hunk', patch, staged, reverse),
   commit: (message) => invoke('repository:commit', message),
   switchBranch: (name) => invoke('repository:switch', name),
   createBranch: (name) => invoke('repository:create-branch', name),
   fetch: () => invoke('repository:fetch'),
   pull: () => invoke('repository:pull'),
   push: () => invoke('repository:push'),
-  onRepositoryChanged: (callback) => ipcRenderer.on('repository:changed', callback),
+  onRepositoryUpdated: (callback) => ipcRenderer.on('repository:updated', (_event, snapshot) => callback(snapshot)),
 });

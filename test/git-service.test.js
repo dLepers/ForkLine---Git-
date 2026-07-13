@@ -6,6 +6,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { GitService, parseTrackingStatus } = require('../src/git-service');
+const { branchSyncState } = require('../src/branch-sync');
 
 const exec = promisify(execFile);
 let repository;
@@ -17,6 +18,12 @@ test('parses branch synchronization states', () => {
   assert.deepEqual(parseTrackingStatus('[behind 3]'), { state: 'behind', ahead: 0, behind: 3 });
   assert.deepEqual(parseTrackingStatus('[ahead 1, behind 4]'), { state: 'diverged', ahead: 1, behind: 4 });
   assert.deepEqual(parseTrackingStatus('[gone]'), { state: 'gone', ahead: 0, behind: 0 });
+});
+
+test('does not mark an unpushed commit as remote', () => {
+  const result = branchSyncState({ name: 'master', hash: 'B', upstream: 'origin/master', tracking: { state: 'ahead', ahead: 1, behind: 0 } }, 'A');
+  assert.deepEqual(result.icons, ['💻', '⬆️']);
+  assert.equal(result.state, 'ahead');
 });
 
 async function command(args) {

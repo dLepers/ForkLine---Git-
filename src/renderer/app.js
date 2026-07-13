@@ -4,6 +4,7 @@ const state = {
   selectedFile: null,
   selectedCommit: null,
   busy: false,
+  pendingSnapshot: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -34,7 +35,7 @@ async function action(label, callback) {
   document.body.style.cursor = 'progress';
   try {
     const result = await callback();
-    if (result) toast(label);
+    if (result && label) toast(label);
     return result;
   } catch (error) {
     toast(error.message, true);
@@ -42,6 +43,11 @@ async function action(label, callback) {
   } finally {
     state.busy = false;
     document.body.style.cursor = '';
+    if (state.pendingSnapshot) {
+      const snapshot = state.pendingSnapshot;
+      state.pendingSnapshot = null;
+      queueMicrotask(() => handleRepositoryUpdate(snapshot));
+    }
   }
 }
 
@@ -66,7 +72,8 @@ function statusLabel(file) {
   return code === '?' ? 'N' : code || 'M';
 }
 
-function applySnapshot(snapshot) {
+function applySnapshot(snapshot, options = {}) {
+  if (snapshot.repositoryRevision && state.snapshot?.repositoryRevision >= snapshot.repositoryRevision) return false;
   state.snapshot = snapshot;
   const repoName = basename(snapshot.repository);
   $('#repo-name').textContent = repoName;
@@ -76,10 +83,12 @@ function applySnapshot(snapshot) {
   $('#branch-source').textContent = snapshot.head;
   renderBranches();
   renderRemotes();
-  renderCommits();
+  if (!options.preserveHistory) renderCommits();
   renderChanges();
+  renderWorktreeInspector();
   $('#welcome').classList.add('hidden');
   $('#workspace').classList.remove('hidden');
+  return true;
 }
 
 function renderBranches() {
@@ -87,25 +96,16 @@ function renderBranches() {
   const graph = window.ForklineGraph.layoutCommitGraph(state.snapshot.commits, { headHash: state.snapshot.headHash, branches: state.snapshot.branches });
   $('#branches').innerHTML = local.map((branch) => `
     <button class="branch-item${branch.current ? ' current' : ''}" style="--branch-color: ${graphColorForHash(graph, branch.hash)}" data-branch="${escapeHtml(branch.name)}" title="${escapeHtml(branchSyncDetails(branch).tooltip)}" aria-label="${escapeHtml(`${branch.name} : ${branchSyncDetails(branch).tooltip}`)}">
-      <span class="branch-symbol"><i></i></span><span>${escapeHtml(branch.name)}</span>${renderBranchSync(branch)}${branch.current ? '<b>HEAD</b>' : ''}
+      ${branch.current ? '<span class="branch-current" aria-label="Branche active">✓</span>' : ''}<span class="branch-symbol"><i></i></span><span>${escapeHtml(branch.name)}</span>${renderBranchSync(branch)}
     </button>`).join('');
   $$('.branch-item').forEach((button) => button.addEventListener('click', () => switchBranch(button.dataset.branch)));
 }
 
 function branchSyncDetails(branch) {
-  const tracking = branch.tracking || { state: branch.upstream ? 'up-to-date' : 'local', ahead: 0, behind: 0 };
-  const upstream = branch.upstream || '';
-  if (tracking.state === 'gone') {
-    return { state: 'gone', icons: ['⚠️'], tooltip: `Dépôt distant introuvable${upstream ? ` (${upstream})` : ''} : upstream supprimé` };
-  }
-  if (!upstream) {
-    return { state: 'local', icons: ['💻'], tooltip: 'Branche uniquement locale, sans dépôt distant associé' };
-  }
-  const suffix = `${tracking.ahead} commit${tracking.ahead > 1 ? 's' : ''} à pousser, ${tracking.behind} commit${tracking.behind > 1 ? 's' : ''} à récupérer`;
-  if (tracking.state === 'diverged') return { state: 'diverged', icons: ['☁️', '🔄'], tooltip: `Branche suivie par ${upstream}. Divergence : ${suffix}` };
-  if (tracking.state === 'ahead') return { state: 'ahead', icons: ['☁️', '⬆️'], tooltip: `Branche suivie par ${upstream}. ${suffix}` };
-  if (tracking.state === 'behind') return { state: 'behind', icons: ['☁️', '⬇️'], tooltip: `Branche suivie par ${upstream}. ${suffix}` };
-  return { state: 'up-to-date', icons: ['☁️'], tooltip: `Branche suivie par ${upstream}, à jour avec le dépôt distant` };
+  const remote = state.snapshot.branches.find((candidate) => candidate.remote && candidate.name === branch.upstream);
+  const result = window.ForklineBranchSync.branchSyncState(branch, remote?.hash || null);
+  if (window.forkline.debugGraphLayout) console.log({ branch: branch.name, localHash: branch.hash, upstream: branch.upstream, remoteHash: remote?.hash, ahead: branch.tracking?.ahead || 0, behind: branch.tracking?.behind || 0, syncState: result.state, iconTypes: result.icons });
+  return result;
 }
 
 function renderBranchSync(branch) {
@@ -157,9 +157,9 @@ function graphLabelDetails(commit, branchColor) {
     if (matchingRemote) consumedRemoteNames.add(matchingRemote.name);
     else if (upstream) consumedRemoteNames.add(upstream);
 
-    const iconTypes = ['local'];
+    const iconTypes = [branch.current ? 'current' : null, 'local'].filter(Boolean);
     if (sync?.state === 'gone') iconTypes.push('warning');
-    else if (matchingRemote || upstream) iconTypes.push('remote');
+    else if (matchingRemote?.hash === branch.hash) iconTypes.push('remote');
     if (sync?.state === 'ahead') iconTypes.push('ahead');
     if (sync?.state === 'behind') iconTypes.push('behind');
     if (sync?.state === 'diverged') iconTypes.push('diverged');
@@ -183,6 +183,7 @@ function graphLabelDetails(commit, branchColor) {
 }
 
 function graphIconMarkup(type, x, y, color) {
+  if (type === 'current') return '<text class="sync-icon branch-current-icon" x="' + x + '" y="' + (y + 10) + '" fill="' + color + '" font-size="11" font-weight="800">✓</text>';
   if (type === 'local') return `<g class="sync-icon" stroke="${color}" fill="none" stroke-width="1.2"><rect x="${x}" y="${y + 1}" width="9" height="6" rx="1"/><path d="M ${x + 2} ${y + 9} H ${x + 7} M ${x + 4.5} ${y + 7} V ${y + 9}"/></g>`;
   if (type === 'remote') return `<path class="sync-icon" d="M ${x + 1} ${y + 8} H ${x + 10} C ${x + 12} ${y + 8}, ${x + 12} ${y + 5}, ${x + 10} ${y + 4} C ${x + 9} ${y + 1}, ${x + 5} ${y + 1}, ${x + 4} ${y + 4} C ${x + 1} ${y + 3}, ${x} ${y + 7}, ${x + 1} ${y + 8}" fill="none" stroke="${color}" stroke-width="1.2"/>`;
   if (type === 'warning') return `<g class="sync-icon" fill="${color}"><path d="M ${x + 6} ${y} L ${x + 12} ${y + 10} H ${x} Z"/><text x="${x + 5}" y="${y + 8}" fill="var(--paper)" font-size="7">!</text></g>`;
@@ -277,12 +278,14 @@ function graphLabelGroupMarkup(labels, nodeX, nodeY, color) {
   const groupY = nodeY - metrics.height / 2;
   const rows = labels.map((label, index) => {
     const labelY = groupY + index * (metrics.rowHeight + metrics.rowGap);
-    const iconStart = labelStart + 14 + label.name.length * 6.1 + 3;
-    const icons = label.iconTypes.map((type, iconIndex) => graphIconMarkup(type, iconStart + iconIndex * 14, labelY + 4, label.color)).join('');
+    const isCurrent = label.iconTypes.includes('current');
+    const nameX = labelStart + 14 + (isCurrent ? 14 : 0);
+    const iconStart = nameX + label.name.length * 6.1 + 3;
+    const icons = label.iconTypes.filter((type) => type !== 'current').map((type, iconIndex) => graphIconMarkup(type, iconStart + iconIndex * 14, labelY + 4, label.color)).join('');
     return `<g class="branch-label ${label.type}">
       <rect x="${labelStart}" y="${labelY}" width="${metrics.width}" height="${metrics.rowHeight}" rx="3" fill="${label.color}" fill-opacity=".12" stroke="${label.color}"/>
       <title>${escapeHtml(label.syncTooltip)}</title>
-      <text x="${labelStart + 14}" y="${labelY + 12.5}" fill="${label.color}">${escapeHtml(label.name)}</text>${icons}
+      ${isCurrent ? graphIconMarkup('current', labelStart + 3, labelY + 4, label.color) : ''}<text x="${nameX}" y="${labelY + 12.5}" fill="${label.color}">${escapeHtml(label.name)}</text>${icons}
     </g>`;
   }).join('');
   const connectorY = nodeY;
@@ -302,7 +305,13 @@ function referenceDetails(reference) {
   return { name, type: current ? 'head' : 'local' };
 }
 
+function ensureHistoryStructure() {
+  if ($('#commits') && $('.history-head')) return;
+  $('#history-view').innerHTML = `<div class="history-head"><span>BRANCHE / TAG · GRAPHE</span><span>MESSAGE DU COMMIT</span><span>AUTEUR</span><span>DATE</span></div><div id="commits" class="commit-list"></div>`;
+}
+
 function renderCommits() {
+  ensureHistoryStructure();
   const graph = window.ForklineGraph.layoutCommitGraph(state.snapshot.commits, {
     headHash: state.snapshot.headHash,
     showWorkingTree: state.snapshot.status.files.length > 0,
@@ -337,13 +346,32 @@ function renderCommits() {
   });
   $('#commits').innerHTML = rows.join('');
   $$('.commit-row').forEach((row) => row.addEventListener('click', () => selectCommit(row.dataset.hash)));
-  $$('.working-tree-row').forEach((row) => row.addEventListener('click', () => setView('changes')));
+  $$('.working-tree-row').forEach((row) => row.addEventListener('click', () => showInspector('#worktree-detail')));
 }
 
 function renderChanges() {
   const files = state.snapshot.status.files;
   renderFileList('#staged-files', files.filter((file) => file.staged), true);
   renderFileList('#unstaged-files', files.filter((file) => file.workingTree !== ' ' || file.untracked), false);
+}
+
+function renderWorktreeInspector() {
+  const files = state.snapshot.status.files;
+  $('#worktree-detail').innerHTML = `
+    <header class="worktree-header"><div><p class="eyebrow">TRAVAIL EN COURS</p><h3>${files.length} fichier${files.length > 1 ? 's' : ''} modifié${files.length > 1 ? 's' : ''}</h3></div><button class="text-button" data-worktree-action="stage-all">Tout ajouter</button></header>
+    <div class="worktree-files"><h4>Fichiers non indexés <span>${files.filter((file) => !file.staged).length}</span></h4><div id="worktree-unstaged-files" class="file-list"></div><h4>Fichiers indexés <span>${files.filter((file) => file.staged).length}</span></h4><div id="worktree-staged-files" class="file-list"></div></div>
+    <div class="worktree-commit"><label for="worktree-commit-message">RÉSUMÉ DU COMMIT</label><textarea id="worktree-commit-message" rows="4" placeholder="Décrire clairement ce qui change…"></textarea><button class="button button-primary" data-worktree-action="commit">Créer le commit</button></div>`;
+  renderFileList('#worktree-staged-files', files.filter((file) => file.staged), true);
+  renderFileList('#worktree-unstaged-files', files.filter((file) => file.workingTree !== ' ' || file.untracked), false);
+  $('[data-worktree-action="stage-all"]').addEventListener('click', async () => {
+    const paths = files.filter((file) => file.workingTree !== ' ' || file.untracked).map((file) => file.path);
+    if (paths.length) { const result = await action('Tous les fichiers ont été ajoutés', () => window.forkline.stage(paths).then(unwrap)); if (result) applySnapshot(result); }
+  });
+  $('[data-worktree-action="commit"]').addEventListener('click', async () => {
+    const message = $('#worktree-commit-message').value.trim();
+    const result = await action('Commit créé', () => window.forkline.commit(message).then(unwrap));
+    if (result) applySnapshot(result.snapshot);
+  });
 }
 
 function renderFileList(selector, files, staged) {
@@ -367,7 +395,7 @@ function renderFileList(selector, files, staged) {
 }
 
 function showInspector(id) {
-  ['#inspector-empty', '#commit-detail', '#diff-detail'].forEach((selector) => $(selector).classList.toggle('hidden', selector !== id));
+  ['#inspector-empty', '#commit-detail', '#worktree-detail', '#diff-detail'].forEach((selector) => $(selector).classList.toggle('hidden', selector !== id));
 }
 
 function selectCommit(hash) {
@@ -385,24 +413,65 @@ function selectCommit(hash) {
 
 async function selectFile(file, staged) {
   state.selectedFile = `${staged}:${file}`;
-  renderChanges();
-  $('#diff-file').textContent = file;
-  $('#diff-action').textContent = staged ? 'Retirer de l’index' : 'Ajouter à l’index';
-  $('#diff-action').dataset.file = file;
-  $('#diff-action').dataset.staged = staged;
-  $('#diff-content').textContent = 'Chargement…';
-  showInspector('#diff-detail');
+  $('#history-view').classList.remove('hidden');
+  $('#changes-view').classList.add('hidden');
+  $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === 'history'));
+  $('#history-view').innerHTML = `<div class="diff-preview"><header><div><p class="eyebrow">APERÇU DES MODIFICATIONS</p><h3>${escapeHtml(file)}</h3></div><button id="close-diff-preview" type="button" class="icon-button" title="Fermer l’aperçu" aria-label="Fermer l’aperçu">×</button></header><div class="diff-preview-actions"><button id="preview-diff-action" type="button" class="button button-small" data-file="${escapeHtml(file)}" data-staged="${staged}">${staged ? 'Retirer de l’index' : 'Ajouter à l’index'}</button></div><pre id="left-diff-content">Chargement…</pre></div>`;
+  $('#preview-diff-action').addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const button = event.currentTarget;
+    toggleStage(button.dataset.file, button.dataset.staged === 'true');
+  });
+  $('#close-diff-preview').addEventListener('click', closeDiffPreview);
   const result = await action('', () => window.forkline.diff(file, staged).then(unwrap));
-  if (result !== null) renderDiff(result);
+  if (result !== null) renderDiffContent(result, staged);
 }
 
-function renderDiff(diff) {
-  const html = escapeHtml(diff).split('\n').map((line) => {
+function renderDiffContent(diff, staged) {
+  const hunks = splitDiffHunks(diff);
+  $('#left-diff-content').innerHTML = renderDiffMarkup(diff, hunks.length);
+  $$('.diff-hunk-action').forEach((button) => button.addEventListener('click', () => {
+    const patch = hunks[Number(button.dataset.hunk)];
+    const reverse = button.classList.contains('discard');
+    const targetStaged = staged || button.classList.contains('unstage');
+    action(reverse ? 'Hunk abandonné' : 'Hunk indexé', () => window.forkline.applyHunk(patch, targetStaged, reverse).then(unwrap)).then((snapshot) => {
+      if (snapshot) applySnapshot(snapshot);
+    });
+  }));
+}
+
+function splitDiffHunks(diff) {
+  const lines = diff.split('\n');
+  const header = lines.slice(0, lines.findIndex((line) => line.startsWith('@@'))).join('\n');
+  const starts = lines.map((line, index) => line.startsWith('@@') ? index : -1).filter((index) => index >= 0);
+  return starts.map((start, index) => [header, ...lines.slice(start, starts[index + 1] || lines.length)].join('\n'));
+}
+
+function renderDiffMarkup(diff, hunkCount = 0) {
+  let hunkIndex = -1;
+  return escapeHtml(diff).split('\n').map((line) => {
+    if (line.startsWith('@@')) {
+      hunkIndex += 1;
+      return `<span class="diff-hunk"><span>${line}</span><span class="diff-hunk-actions"><button class="diff-hunk-action discard" data-hunk="${hunkIndex}" type="button">Abandonner le hunk</button><button class="diff-hunk-action stage" data-hunk="${hunkIndex}" type="button">Indexer le hunk</button></span></span>`;
+    }
     if (line.startsWith('+') && !line.startsWith('+++')) return `<span class="diff-add">${line}</span>`;
     if (line.startsWith('-') && !line.startsWith('---')) return `<span class="diff-remove">${line}</span>`;
     return line;
   }).join('\n');
-  $('#diff-content').innerHTML = html;
+}
+
+function renderDiff(diff) {
+  $('#diff-content').innerHTML = renderDiffMarkup(diff);
+}
+
+function closeDiffPreview() {
+  state.selectedFile = null;
+  renderCommits();
+  $('#history-view').classList.remove('hidden');
+  $('#changes-view').classList.add('hidden');
+  $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === 'history'));
+  showInspector('#worktree-detail');
 }
 
 async function toggleStage(file, staged) {
@@ -410,7 +479,15 @@ async function toggleStage(file, staged) {
     const method = staged ? 'unstage' : 'stage';
     return window.forkline[method]([file]).then(unwrap);
   });
-  if (result) applySnapshot(result);
+  if (result) {
+    state.snapshot = result;
+    renderBranches();
+    renderWorktreeInspector();
+    showInspector('#worktree-detail');
+    if ($('#preview-diff-action')) {
+      $('#preview-diff-action').textContent = staged ? 'Ajouter à l’index' : 'Retirer de l’index';
+    }
+  }
 }
 
 async function switchBranch(name) {
@@ -422,7 +499,62 @@ async function switchBranch(name) {
 async function refresh(silent = false) {
   if (!state.snapshot || state.busy) return;
   const result = await action(silent ? '' : 'Dépôt actualisé', () => window.forkline.refresh().then(unwrap));
-  if (result) applySnapshot(result);
+  if (result) {
+    const selectedFile = state.selectedFile;
+    applySnapshot(result);
+    if (selectedFile) {
+      const separator = selectedFile.indexOf(':');
+      const file = selectedFile.slice(separator + 1);
+      const currentFile = result.status.files.find((item) => item.path === file);
+      if (currentFile) await selectFile(file, currentFile.staged);
+      else state.selectedFile = null;
+    }
+  }
+}
+
+async function handleRepositoryUpdate(snapshot) {
+  if (state.busy) {
+    if (!state.pendingSnapshot?.repositoryRevision || state.pendingSnapshot.repositoryRevision < snapshot.repositoryRevision) state.pendingSnapshot = snapshot;
+    return;
+  }
+
+  const historyScroll = $('#history-view')?.scrollTop || 0;
+  const worktreeScroll = $('#worktree-detail')?.scrollTop || 0;
+  const commitDetailScroll = $('#commit-detail')?.scrollTop || 0;
+  const diffScroll = $('#left-diff-content') ? { top: $('#left-diff-content').scrollTop, left: $('#left-diff-content').scrollLeft } : null;
+  const selectedFile = state.selectedFile;
+  const selectedCommit = state.selectedCommit;
+  const diffWasOpen = Boolean($('#left-diff-content'));
+  const worktreeWasOpen = !$('#worktree-detail').classList.contains('hidden');
+  const selectedPath = selectedFile ? selectedFile.slice(selectedFile.indexOf(':') + 1) : null;
+  const currentFile = selectedPath ? snapshot.status.files.find((item) => item.path === selectedPath) : null;
+  const preserveDiff = diffWasOpen && Boolean(currentFile);
+  if (!applySnapshot(snapshot, { preserveHistory: preserveDiff })) return;
+
+  if (preserveDiff) {
+    state.selectedFile = `${currentFile.staged}:${selectedPath}`;
+    const diff = await window.forkline.diff(selectedPath, currentFile.staged).then(unwrap);
+    if (state.snapshot.repositoryRevision !== snapshot.repositoryRevision || !$('#left-diff-content')) return;
+    renderDiffContent(diff, currentFile.staged);
+    $('#preview-diff-action').textContent = currentFile.staged ? 'Retirer de l’index' : 'Ajouter à l’index';
+    $('#preview-diff-action').dataset.staged = currentFile.staged;
+  } else if (diffWasOpen) {
+    state.selectedFile = null;
+  } else if (selectedCommit && snapshot.commits.some((commit) => commit.hash === selectedCommit)) {
+    selectCommit(selectedCommit);
+  } else if (worktreeWasOpen) {
+    showInspector('#worktree-detail');
+  }
+
+  requestAnimationFrame(() => {
+    if ($('#history-view')) $('#history-view').scrollTop = historyScroll;
+    if ($('#worktree-detail')) $('#worktree-detail').scrollTop = worktreeScroll;
+    if ($('#commit-detail')) $('#commit-detail').scrollTop = commitDetailScroll;
+    if (diffScroll && $('#left-diff-content')) {
+      $('#left-diff-content').scrollTop = diffScroll.top;
+      $('#left-diff-content').scrollLeft = diffScroll.left;
+    }
+  });
 }
 
 async function openRepository() {
@@ -488,7 +620,7 @@ $('#confirm-branch').addEventListener('click', async (event) => {
   }
 });
 
-window.forkline.onRepositoryChanged(() => refresh(true));
+window.forkline.onRepositoryUpdated(handleRepositoryUpdate);
 
 (async () => {
   const result = await action('', () => window.forkline.restoreRepository().then(unwrap));
