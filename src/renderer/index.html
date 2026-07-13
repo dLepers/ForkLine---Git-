@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:;">
+    <title>Forkline</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="titlebar">
+      <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+      <strong>Forkline</strong>
+      <div id="repo-title" class="repo-title">Aucun dépôt ouvert</div>
+    </div>
+
+    <main id="welcome" class="welcome">
+      <div class="welcome-art" aria-hidden="true">
+        <span class="rail rail-a"></span><span class="rail rail-b"></span><span class="rail rail-c"></span>
+        <i class="node node-a"></i><i class="node node-b"></i><i class="node node-c"></i><i class="node node-d"></i>
+      </div>
+      <p class="eyebrow">CLIENT GIT LOCAL</p>
+      <h1>Suivez chaque ligne<br>de votre histoire.</h1>
+      <p class="welcome-copy">Dépôts publics, privés ou auto-hébergés.<br>Vos identifiants restent gérés par Git.</p>
+      <button id="open-repo-welcome" class="button button-primary">Ouvrir un dépôt</button>
+      <p id="restore-status" class="restore-status">Recherche du dernier dépôt…</p>
+    </main>
+
+    <div id="workspace" class="workspace hidden">
+      <aside class="sidebar">
+        <button id="open-repo" class="repo-switcher">
+          <span class="repo-icon">⌘</span>
+          <span><small>DÉPÔT ACTIF</small><strong id="repo-name">—</strong></span>
+          <span class="chevron">⌄</span>
+        </button>
+
+        <nav class="nav-sections">
+          <section>
+            <p class="section-title">ESPACE DE TRAVAIL</p>
+            <button class="nav-item active" data-view="history"><span class="nav-symbol">◉</span>Historique <b id="commit-count"></b></button>
+            <button class="nav-item" data-view="changes"><span class="nav-symbol">±</span>Modifications <b id="change-count"></b></button>
+          </section>
+          <section>
+            <div class="section-heading"><p class="section-title">BRANCHES</p><button id="new-branch" title="Créer une branche">＋</button></div>
+            <div id="branches" class="branch-list"></div>
+          </section>
+          <section>
+            <p class="section-title">BRANCHES DISTANTES</p>
+            <div id="remotes" class="remote-list"></div>
+          </section>
+        </nav>
+      </aside>
+
+      <section class="content">
+        <header class="toolbar">
+          <div>
+            <p id="view-kicker" class="eyebrow">CHRONOLOGIE</p>
+            <h2 id="view-title">Historique du dépôt</h2>
+          </div>
+          <div class="toolbar-actions">
+            <button id="fetch" class="tool-button" title="Récupérer les références">↓<span>Fetch</span></button>
+            <button id="pull" class="tool-button" title="Récupérer et avancer">↙<span>Pull</span></button>
+            <button id="push" class="tool-button" title="Publier les commits">↗<span>Push</span></button>
+            <button id="refresh" class="icon-button" title="Actualiser">↻</button>
+          </div>
+        </header>
+
+        <div id="history-view" class="view history-view">
+          <div class="history-head"><span>BRANCHE / TAG · GRAPHE</span><span>MESSAGE DU COMMIT</span><span>AUTEUR</span><span>DATE</span></div>
+          <div id="commits" class="commit-list"></div>
+        </div>
+
+        <div id="changes-view" class="view changes-view hidden">
+          <div class="changes-column">
+            <div class="changes-header"><div><p class="eyebrow">INDEX</p><h3>Fichiers prêts</h3></div><button id="unstage-all" class="text-button">Tout retirer</button></div>
+            <div id="staged-files" class="file-list"></div>
+            <div class="changes-header divider"><div><p class="eyebrow">COPIE DE TRAVAIL</p><h3>Fichiers modifiés</h3></div><button id="stage-all" class="text-button">Tout ajouter</button></div>
+            <div id="unstaged-files" class="file-list"></div>
+          </div>
+          <div class="commit-box">
+            <label for="commit-message">MESSAGE DU COMMIT</label>
+            <textarea id="commit-message" rows="4" placeholder="Décrire clairement ce qui change…"></textarea>
+            <button id="commit" class="button button-primary">Créer le commit</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="inspector">
+        <div id="inspector-empty" class="inspector-empty">
+          <div class="empty-glyph">⌁</div>
+          <h3>Sélectionnez un élément</h3>
+          <p>Les détails d’un commit ou le diff d’un fichier apparaîtront ici.</p>
+        </div>
+        <div id="commit-detail" class="commit-detail hidden"></div>
+        <div id="diff-detail" class="diff-detail hidden">
+          <header><div><p class="eyebrow">DIFFÉRENCE</p><h3 id="diff-file"></h3></div><button id="diff-action" class="button button-small"></button></header>
+          <pre id="diff-content"></pre>
+        </div>
+      </aside>
+    </div>
+
+    <div id="toast-region" class="toast-region" aria-live="polite"></div>
+    <dialog id="branch-dialog">
+      <form method="dialog">
+        <p class="eyebrow">NOUVELLE BRANCHE</p>
+        <h3>Créer depuis <span id="branch-source"></span></h3>
+        <label for="branch-name">Nom de la branche</label>
+        <input id="branch-name" autocomplete="off" placeholder="feature/ma-branche">
+        <div class="dialog-actions"><button value="cancel" class="button">Annuler</button><button id="confirm-branch" value="default" class="button button-primary">Créer et basculer</button></div>
+      </form>
+    </dialog>
+    <script src="graph-layout.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

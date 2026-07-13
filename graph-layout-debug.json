@@ -1,0 +1,1525 @@
+{
+  "sourceLog": "/tmp/forkline-compaction-debug.log",
+  "displayOrder": {
+    "finalDisplayOrder": "date-order",
+    "topologicalCommitCount": 160,
+    "dateOrderCommitCount": 160,
+    "firstDifference": {
+      "index": 15,
+      "topoHash": "ae2b9a96294fa9e2abaf461d8a9ec13826ff154f",
+      "dateHash": "306251663e5c09ff6037f76013102d5cfa425fc9"
+    }
+  },
+  "focusOrder": [
+    {
+      "row": 5,
+      "commit": "deaafcfddef10f03d65546396d2c0bf8461f3a1b",
+      "message": "Merge branch 'preproduction' into develop"
+    },
+    {
+      "row": 6,
+      "commit": "0a0c5f9b6561346156bd2a56224ca9e32458c2d4",
+      "message": "Pouvoir utiliser le même mail personnel pour envoyer les demandes Arrivée / Départ"
+    },
+    {
+      "row": 7,
+      "commit": "abd6f0fe1250116c48e00c2c06eee9b08ae7ded3",
+      "message": "Merge branch 'develop' into preproduction"
+    },
+    {
+      "row": 15,
+      "commit": "306251663e5c09ff6037f76013102d5cfa425fc9",
+      "message": "Merge branch 'Detection_des_homonymes' into develop"
+    },
+    {
+      "row": 21,
+      "commit": "b94bef3b5894b52cab6f238b3caf2ba0121b10a9",
+      "message": "Merge branch 'preproduction'"
+    }
+  ],
+  "focusCommits": [
+    {
+      "row": 5,
+      "commit": "deaafcfddef10f03d65546396d2c0bf8461f3a1b",
+      "shortCommit": "deaafcf",
+      "message": "Merge branch 'preproduction' into develop",
+      "authorDate": "2026-07-08T09:46:50+02:00",
+      "committerDate": "2026-07-08T09:46:50+02:00",
+      "topologicalRank": 5,
+      "finalDisplayIndex": 5,
+      "dateOrderIndex": 5,
+      "parents": [
+        {
+          "hash": "cffeec97544a29d68466556d512a31f5dec298e7",
+          "lane": 0
+        },
+        {
+          "hash": "0a0c5f9b6561346156bd2a56224ca9e32458c2d4",
+          "lane": 1
+        }
+      ],
+      "children": [
+        {
+          "hash": "05d4ec38968e6b90efcedc450232ca7688f180a5",
+          "lane": 1
+        }
+      ],
+      "branches": [
+        "develop",
+        "origin/develop"
+      ],
+      "laneBefore": 0,
+      "laneCurrent": 0,
+      "laneColor": 0,
+      "laneAfter": 0,
+      "activeLanesBefore": [
+        "Lane 0 -> develop, origin/develop"
+      ],
+      "activeLanesAfterRaw": [
+        "Lane 0 -> cffeec9754",
+        "Lane 1 -> preproduction, origin/preproduction"
+      ],
+      "activeLanesAfter": [
+        "Lane 0 -> cffeec9754",
+        "Lane 1 -> preproduction, origin/preproduction"
+      ],
+      "events": [
+        "merge"
+      ],
+      "decision": "Commit déjà présent dans une lane existante",
+      "edges": [
+        {
+          "from": 0,
+          "to": 0,
+          "commit": "cffeec97544a29d68466556d512a31f5dec298e7"
+        },
+        {
+          "from": 0,
+          "to": 1,
+          "commit": "0a0c5f9b6561346156bd2a56224ca9e32458c2d4"
+        }
+      ],
+      "moves": [],
+      "svgPaths": [
+        "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+        "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+        "<path class=\"graph-curve\" d=\"M 195.5 22 C 195.5 34, 211.5 32, 211.5 44\" stroke=\"#57a773\"/>"
+      ]
+    },
+    {
+      "row": 6,
+      "commit": "0a0c5f9b6561346156bd2a56224ca9e32458c2d4",
+      "shortCommit": "0a0c5f9",
+      "message": "Pouvoir utiliser le même mail personnel pour envoyer les demandes Arrivée / Départ",
+      "authorDate": "2026-07-08T09:46:37+02:00",
+      "committerDate": "2026-07-08T09:46:37+02:00",
+      "topologicalRank": 6,
+      "finalDisplayIndex": 6,
+      "dateOrderIndex": 6,
+      "parents": [
+        {
+          "hash": "abd6f0fe1250116c48e00c2c06eee9b08ae7ded3",
+          "lane": 1
+        }
+      ],
+      "children": [
+        {
+          "hash": "deaafcfddef10f03d65546396d2c0bf8461f3a1b",
+          "lane": 0
+        }
+      ],
+      "branches": [
+        "preproduction",
+        "origin/preproduction"
+      ],
+      "laneBefore": 1,
+      "laneCurrent": 1,
+      "laneColor": 2,
+      "laneAfter": 1,
+      "activeLanesBefore": [
+        "Lane 0 -> cffeec9754",
+        "Lane 1 -> preproduction, origin/preproduction"
+      ],
+      "activeLanesAfterRaw": [
+        "Lane 0 -> cffeec9754",
+        "Lane 1 -> abd6f0fe12"
+      ],
+      "activeLanesAfter": [
+        "Lane 0 -> cffeec9754",
+        "Lane 1 -> abd6f0fe12"
+      ],
+      "events": [
+        "normal"
+      ],
+      "decision": "Commit déjà présent dans une lane existante",
+      "edges": [
+        {
+          "from": 1,
+          "to": 1,
+          "commit": "abd6f0fe1250116c48e00c2c06eee9b08ae7ded3"
+        }
+      ],
+      "moves": [],
+      "svgPaths": [
+        "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+        "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+        "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+        "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> "
+      ]
+    },
+    {
+      "row": 7,
+      "commit": "abd6f0fe1250116c48e00c2c06eee9b08ae7ded3",
+      "shortCommit": "abd6f0f",
+      "message": "Merge branch 'develop' into preproduction",
+      "authorDate": "2026-07-07T14:14:55+02:00",
+      "committerDate": "2026-07-07T14:14:55+02:00",
+      "topologicalRank": 7,
+      "finalDisplayIndex": 7,
+      "dateOrderIndex": 7,
+      "parents": [
+        {
+          "hash": "151ee2300d8b599b066245b4be24cb8b8a53e504",
+          "lane": 1
+        },
+        {
+          "hash": "cffeec97544a29d68466556d512a31f5dec298e7",
+          "lane": 0
+        }
+      ],
+      "children": [
+        {
+          "hash": "0a0c5f9b6561346156bd2a56224ca9e32458c2d4",
+          "lane": 1
+        }
+      ],
+      "branches": [],
+      "laneBefore": 1,
+      "laneCurrent": 1,
+      "laneColor": 2,
+      "laneAfter": 1,
+      "activeLanesBefore": [
+        "Lane 0 -> cffeec9754",
+        "Lane 1 -> abd6f0fe12"
+      ],
+      "activeLanesAfterRaw": [
+        "Lane 0 -> cffeec9754",
+        "Lane 1 -> 151ee2300d"
+      ],
+      "activeLanesAfter": [
+        "Lane 0 -> cffeec9754",
+        "Lane 1 -> 151ee2300d"
+      ],
+      "events": [
+        "merge"
+      ],
+      "decision": "Commit déjà présent dans une lane existante",
+      "edges": [
+        {
+          "from": 1,
+          "to": 1,
+          "commit": "151ee2300d8b599b066245b4be24cb8b8a53e504"
+        },
+        {
+          "from": 1,
+          "to": 0,
+          "commit": "cffeec97544a29d68466556d512a31f5dec298e7"
+        }
+      ],
+      "moves": [],
+      "svgPaths": [
+        "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+        "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+        "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+        "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> ",
+        "<path class=\"graph-curve\" d=\"M 211.5 22 C 211.5 34, 195.5 32, 195.5 44\" stroke=\"#e95f36\"/>"
+      ]
+    },
+    {
+      "row": 15,
+      "commit": "306251663e5c09ff6037f76013102d5cfa425fc9",
+      "shortCommit": "3062516",
+      "message": "Merge branch 'Detection_des_homonymes' into develop",
+      "authorDate": "2026-06-25T10:12:58+02:00",
+      "committerDate": "2026-06-25T10:12:58+02:00",
+      "topologicalRank": 17,
+      "finalDisplayIndex": 15,
+      "dateOrderIndex": 15,
+      "parents": [
+        {
+          "hash": "8514d7a44232f945c31019ee3c7a85a0b3c20804",
+          "lane": 0
+        },
+        {
+          "hash": "b767ae918a43bdf4d4d3053d6d0de6986dcfe792",
+          "lane": 3
+        }
+      ],
+      "children": [
+        {
+          "hash": "3f7529339a9e0b800fe22baacb8b7b37ae85ddc3",
+          "lane": 0
+        }
+      ],
+      "branches": [
+        "Test_intégration/unitaire"
+      ],
+      "laneBefore": 0,
+      "laneCurrent": 0,
+      "laneColor": 0,
+      "laneAfter": 0,
+      "activeLanesBefore": [
+        "Lane 0 -> Test_intégration/unitaire",
+        "Lane 1 -> fe0226f60e",
+        "Lane 2 -> ae2b9a9629"
+      ],
+      "activeLanesAfterRaw": [
+        "Lane 0 -> 8514d7a442",
+        "Lane 1 -> fe0226f60e",
+        "Lane 2 -> ae2b9a9629",
+        "Lane 3 -> b767ae918a"
+      ],
+      "activeLanesAfter": [
+        "Lane 0 -> 8514d7a442",
+        "Lane 1 -> fe0226f60e",
+        "Lane 2 -> ae2b9a9629",
+        "Lane 3 -> b767ae918a"
+      ],
+      "events": [
+        "merge"
+      ],
+      "decision": "Commit déjà présent dans une lane existante",
+      "edges": [
+        {
+          "from": 0,
+          "to": 0,
+          "commit": "8514d7a44232f945c31019ee3c7a85a0b3c20804"
+        },
+        {
+          "from": 0,
+          "to": 3,
+          "commit": "b767ae918a43bdf4d4d3053d6d0de6986dcfe792"
+        }
+      ],
+      "moves": [],
+      "svgPaths": [
+        "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+        "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+        "<path d=\"M 227.5 0 L 227.5 22\" stroke=\"#d8a62a\"/> ",
+        "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#e95f36\"/> ",
+        "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> ",
+        "<path d=\"M 227.5 22 L 227.5 44\" stroke=\"#d8a62a\"/> ",
+        "<path class=\"graph-curve\" d=\"M 195.5 22 C 195.5 34, 243.5 32, 243.5 44\" stroke=\"#d36b9d\"/>"
+      ]
+    },
+    {
+      "row": 21,
+      "commit": "b94bef3b5894b52cab6f238b3caf2ba0121b10a9",
+      "shortCommit": "b94bef3",
+      "message": "Merge branch 'preproduction'",
+      "authorDate": "2026-06-10T09:27:32+02:00",
+      "committerDate": "2026-06-10T09:27:32+02:00",
+      "topologicalRank": 23,
+      "finalDisplayIndex": 21,
+      "dateOrderIndex": 21,
+      "parents": [
+        {
+          "hash": "035b9a0c32ca9daacfd96862cd2f8a30c52bb63d",
+          "lane": 3
+        },
+        {
+          "hash": "fe0226f60e4b4bb97a0177831963a2d9583b12c6",
+          "lane": 1
+        }
+      ],
+      "children": [],
+      "branches": [
+        "master",
+        "origin",
+        "origin/master"
+      ],
+      "laneBefore": -1,
+      "laneCurrent": 3,
+      "laneColor": 5,
+      "laneAfter": 3,
+      "activeLanesBefore": [
+        "Lane 0 -> 8514d7a442",
+        "Lane 1 -> fe0226f60e",
+        "Lane 2 -> ae2b9a9629",
+        "Lane 3 -> master, origin, origin/master"
+      ],
+      "activeLanesAfterRaw": [
+        "Lane 0 -> 8514d7a442",
+        "Lane 1 -> fe0226f60e",
+        "Lane 2 -> ae2b9a9629",
+        "Lane 3 -> 035b9a0c32"
+      ],
+      "activeLanesAfter": [
+        "Lane 0 -> 8514d7a442",
+        "Lane 1 -> fe0226f60e",
+        "Lane 2 -> ae2b9a9629",
+        "Lane 3 -> 035b9a0c32"
+      ],
+      "events": [
+        "merge",
+        "branch start"
+      ],
+      "decision": "Création d'une nouvelle lane",
+      "edges": [
+        {
+          "from": 3,
+          "to": 3,
+          "commit": "035b9a0c32ca9daacfd96862cd2f8a30c52bb63d"
+        },
+        {
+          "from": 3,
+          "to": 1,
+          "commit": "fe0226f60e4b4bb97a0177831963a2d9583b12c6"
+        }
+      ],
+      "moves": [],
+      "svgPaths": [
+        "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#e95f36\"/> ",
+        "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+        "<path d=\"M 227.5 0 L 227.5 22\" stroke=\"#d8a62a\"/> ",
+        "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#e95f36\"/> ",
+        "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> ",
+        "<path d=\"M 227.5 22 L 227.5 44\" stroke=\"#d8a62a\"/> ",
+        "<path d=\"M 243.5 22 L 243.5 44\" stroke=\"#8a77cf\"/> ",
+        "<path class=\"graph-curve\" d=\"M 243.5 22 C 243.5 34, 211.5 32, 211.5 44\" stroke=\"#57a773\"/>"
+      ]
+    }
+  ],
+  "window": {
+    "firstRow": 5,
+    "lastRow": 21,
+    "commits": [
+      {
+        "row": 5,
+        "commit": "deaafcfddef10f03d65546396d2c0bf8461f3a1b",
+        "shortCommit": "deaafcf",
+        "message": "Merge branch 'preproduction' into develop",
+        "authorDate": "2026-07-08T09:46:50+02:00",
+        "committerDate": "2026-07-08T09:46:50+02:00",
+        "topologicalRank": 5,
+        "finalDisplayIndex": 5,
+        "dateOrderIndex": 5,
+        "parents": [
+          {
+            "hash": "cffeec97544a29d68466556d512a31f5dec298e7",
+            "lane": 0
+          },
+          {
+            "hash": "0a0c5f9b6561346156bd2a56224ca9e32458c2d4",
+            "lane": 1
+          }
+        ],
+        "children": [
+          {
+            "hash": "05d4ec38968e6b90efcedc450232ca7688f180a5",
+            "lane": 1
+          }
+        ],
+        "branches": [
+          "develop",
+          "origin/develop"
+        ],
+        "laneBefore": 0,
+        "laneCurrent": 0,
+        "laneColor": 0,
+        "laneAfter": 0,
+        "activeLanesBefore": [
+          "Lane 0 -> develop, origin/develop"
+        ],
+        "activeLanesAfterRaw": [
+          "Lane 0 -> cffeec9754",
+          "Lane 1 -> preproduction, origin/preproduction"
+        ],
+        "activeLanesAfter": [
+          "Lane 0 -> cffeec9754",
+          "Lane 1 -> preproduction, origin/preproduction"
+        ],
+        "events": [
+          "merge"
+        ],
+        "decision": "Commit déjà présent dans une lane existante",
+        "edges": [
+          {
+            "from": 0,
+            "to": 0,
+            "commit": "cffeec97544a29d68466556d512a31f5dec298e7"
+          },
+          {
+            "from": 0,
+            "to": 1,
+            "commit": "0a0c5f9b6561346156bd2a56224ca9e32458c2d4"
+          }
+        ],
+        "moves": [],
+        "svgPaths": [
+          "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path class=\"graph-curve\" d=\"M 195.5 22 C 195.5 34, 211.5 32, 211.5 44\" stroke=\"#57a773\"/>"
+        ]
+      },
+      {
+        "row": 6,
+        "commit": "0a0c5f9b6561346156bd2a56224ca9e32458c2d4",
+        "shortCommit": "0a0c5f9",
+        "message": "Pouvoir utiliser le même mail personnel pour envoyer les demandes Arrivée / Départ",
+        "authorDate": "2026-07-08T09:46:37+02:00",
+        "committerDate": "2026-07-08T09:46:37+02:00",
+        "topologicalRank": 6,
+        "finalDisplayIndex": 6,
+        "dateOrderIndex": 6,
+        "parents": [
+          {
+            "hash": "abd6f0fe1250116c48e00c2c06eee9b08ae7ded3",
+            "lane": 1
+          }
+        ],
+        "children": [
+          {
+            "hash": "deaafcfddef10f03d65546396d2c0bf8461f3a1b",
+            "lane": 0
+          }
+        ],
+        "branches": [
+          "preproduction",
+          "origin/preproduction"
+        ],
+        "laneBefore": 1,
+        "laneCurrent": 1,
+        "laneColor": 2,
+        "laneAfter": 1,
+        "activeLanesBefore": [
+          "Lane 0 -> cffeec9754",
+          "Lane 1 -> preproduction, origin/preproduction"
+        ],
+        "activeLanesAfterRaw": [
+          "Lane 0 -> cffeec9754",
+          "Lane 1 -> abd6f0fe12"
+        ],
+        "activeLanesAfter": [
+          "Lane 0 -> cffeec9754",
+          "Lane 1 -> abd6f0fe12"
+        ],
+        "events": [
+          "normal"
+        ],
+        "decision": "Commit déjà présent dans une lane existante",
+        "edges": [
+          {
+            "from": 1,
+            "to": 1,
+            "commit": "abd6f0fe1250116c48e00c2c06eee9b08ae7ded3"
+          }
+        ],
+        "moves": [],
+        "svgPaths": [
+          "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> "
+        ]
+      },
+      {
+        "row": 7,
+        "commit": "abd6f0fe1250116c48e00c2c06eee9b08ae7ded3",
+        "shortCommit": "abd6f0f",
+        "message": "Merge branch 'develop' into preproduction",
+        "authorDate": "2026-07-07T14:14:55+02:00",
+        "committerDate": "2026-07-07T14:14:55+02:00",
+        "topologicalRank": 7,
+        "finalDisplayIndex": 7,
+        "dateOrderIndex": 7,
+        "parents": [
+          {
+            "hash": "151ee2300d8b599b066245b4be24cb8b8a53e504",
+            "lane": 1
+          },
+          {
+            "hash": "cffeec97544a29d68466556d512a31f5dec298e7",
+            "lane": 0
+          }
+        ],
+        "children": [
+          {
+            "hash": "0a0c5f9b6561346156bd2a56224ca9e32458c2d4",
+            "lane": 1
+          }
+        ],
+        "branches": [],
+        "laneBefore": 1,
+        "laneCurrent": 1,
+        "laneColor": 2,
+        "laneAfter": 1,
+        "activeLanesBefore": [
+          "Lane 0 -> cffeec9754",
+          "Lane 1 -> abd6f0fe12"
+        ],
+        "activeLanesAfterRaw": [
+          "Lane 0 -> cffeec9754",
+          "Lane 1 -> 151ee2300d"
+        ],
+        "activeLanesAfter": [
+          "Lane 0 -> cffeec9754",
+          "Lane 1 -> 151ee2300d"
+        ],
+        "events": [
+          "merge"
+        ],
+        "decision": "Commit déjà présent dans une lane existante",
+        "edges": [
+          {
+            "from": 1,
+            "to": 1,
+            "commit": "151ee2300d8b599b066245b4be24cb8b8a53e504"
+          },
+          {
+            "from": 1,
+            "to": 0,
+            "commit": "cffeec97544a29d68466556d512a31f5dec298e7"
+          }
+        ],
+        "moves": [],
+        "svgPaths": [
+          "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> ",
+          "<path class=\"graph-curve\" d=\"M 211.5 22 C 211.5 34, 195.5 32, 195.5 44\" stroke=\"#e95f36\"/>"
+        ]
+      },
+      {
+        "row": 8,
+        "commit": "cffeec97544a29d68466556d512a31f5dec298e7",
+        "shortCommit": "cffeec9",
+        "message": "fix(predemande): reutiliser un utilisateur existant par email",
+        "authorDate": "2026-07-07T14:14:10+02:00",
+        "committerDate": "2026-07-07T14:14:10+02:00",
+        "topologicalRank": 8,
+        "finalDisplayIndex": 8,
+        "dateOrderIndex": 8,
+        "parents": [
+          {
+            "hash": "4c45dc9beb1a6606754abd53a2c8ec9bd73d54b8",
+            "lane": 0
+          }
+        ],
+        "children": [
+          {
+            "hash": "deaafcfddef10f03d65546396d2c0bf8461f3a1b",
+            "lane": 0
+          },
+          {
+            "hash": "abd6f0fe1250116c48e00c2c06eee9b08ae7ded3",
+            "lane": 1
+          }
+        ],
+        "branches": [],
+        "laneBefore": 0,
+        "laneCurrent": 0,
+        "laneColor": 0,
+        "laneAfter": 0,
+        "activeLanesBefore": [
+          "Lane 0 -> cffeec9754",
+          "Lane 1 -> 151ee2300d"
+        ],
+        "activeLanesAfterRaw": [
+          "Lane 0 -> 4c45dc9beb",
+          "Lane 1 -> 151ee2300d"
+        ],
+        "activeLanesAfter": [
+          "Lane 0 -> 4c45dc9beb",
+          "Lane 1 -> 151ee2300d"
+        ],
+        "events": [
+          "normal"
+        ],
+        "decision": "Commit déjà présent dans une lane existante",
+        "edges": [
+          {
+            "from": 0,
+            "to": 0,
+            "commit": "4c45dc9beb1a6606754abd53a2c8ec9bd73d54b8"
+          }
+        ],
+        "moves": [],
+        "svgPaths": [
+          "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> "
+        ]
+      },
+      {
+        "row": 9,
+        "commit": "4c45dc9beb1a6606754abd53a2c8ec9bd73d54b8",
+        "shortCommit": "4c45dc9",
+        "message": "feat(homonymes): masquer les homonymes orphelins",
+        "authorDate": "2026-07-07T11:51:27+02:00",
+        "committerDate": "2026-07-07T11:51:27+02:00",
+        "topologicalRank": 9,
+        "finalDisplayIndex": 9,
+        "dateOrderIndex": 9,
+        "parents": [
+          {
+            "hash": "1cd3b1ce0dd6ba6d8b60e60115235c361135b08e",
+            "lane": 0
+          }
+        ],
+        "children": [
+          {
+            "hash": "cffeec97544a29d68466556d512a31f5dec298e7",
+            "lane": 0
+          }
+        ],
+        "branches": [],
+        "laneBefore": 0,
+        "laneCurrent": 0,
+        "laneColor": 0,
+        "laneAfter": 0,
+        "activeLanesBefore": [
+          "Lane 0 -> 4c45dc9beb",
+          "Lane 1 -> 151ee2300d"
+        ],
+        "activeLanesAfterRaw": [
+          "Lane 0 -> 1cd3b1ce0d",
+          "Lane 1 -> 151ee2300d"
+        ],
+        "activeLanesAfter": [
+          "Lane 0 -> 1cd3b1ce0d",
+          "Lane 1 -> 151ee2300d"
+        ],
+        "events": [
+          "normal"
+        ],
+        "decision": "Commit déjà présent dans une lane existante",
+        "edges": [
+          {
+            "from": 0,
+            "to": 0,
+            "commit": "1cd3b1ce0dd6ba6d8b60e60115235c361135b08e"
+          }
+        ],
+        "moves": [],
+        "svgPaths": [
+          "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> "
+        ]
+      },
+      {
+        "row": 10,
+        "commit": "151ee2300d8b599b066245b4be24cb8b8a53e504",
+        "shortCommit": "151ee23",
+        "message": "Merge branch 'develop' into preproduction",
+        "authorDate": "2026-06-30T11:19:42+02:00",
+        "committerDate": "2026-06-30T11:19:42+02:00",
+        "topologicalRank": 10,
+        "finalDisplayIndex": 10,
+        "dateOrderIndex": 10,
+        "parents": [
+          {
+            "hash": "fe0226f60e4b4bb97a0177831963a2d9583b12c6",
+            "lane": 1
+          },
+          {
+            "hash": "1cd3b1ce0dd6ba6d8b60e60115235c361135b08e",
+            "lane": 0
+          }
+        ],
+        "children": [
+          {
+            "hash": "abd6f0fe1250116c48e00c2c06eee9b08ae7ded3",
+            "lane": 1
+          }
+        ],
+        "branches": [],
+        "laneBefore": 1,
+        "laneCurrent": 1,
+        "laneColor": 2,
+        "laneAfter": 1,
+        "activeLanesBefore": [
+          "Lane 0 -> 1cd3b1ce0d",
+          "Lane 1 -> 151ee2300d"
+        ],
+        "activeLanesAfterRaw": [
+          "Lane 0 -> 1cd3b1ce0d",
+          "Lane 1 -> fe0226f60e"
+        ],
+        "activeLanesAfter": [
+          "Lane 0 -> 1cd3b1ce0d",
+          "Lane 1 -> fe0226f60e"
+        ],
+        "events": [
+          "merge"
+        ],
+        "decision": "Commit déjà présent dans une lane existante",
+        "edges": [
+          {
+            "from": 1,
+            "to": 1,
+            "commit": "fe0226f60e4b4bb97a0177831963a2d9583b12c6"
+          },
+          {
+            "from": 1,
+            "to": 0,
+            "commit": "1cd3b1ce0dd6ba6d8b60e60115235c361135b08e"
+          }
+        ],
+        "moves": [],
+        "svgPaths": [
+          "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> ",
+          "<path class=\"graph-curve\" d=\"M 211.5 22 C 211.5 34, 195.5 32, 195.5 44\" stroke=\"#e95f36\"/>"
+        ]
+      },
+      {
+        "row": 11,
+        "commit": "1cd3b1ce0dd6ba6d8b60e60115235c361135b08e",
+        "shortCommit": "1cd3b1c",
+        "message": "fix(homonymes): securiser et fiabiliser la resolution",
+        "authorDate": "2026-06-30T11:11:30+02:00",
+        "committerDate": "2026-06-30T11:11:30+02:00",
+        "topologicalRank": 11,
+        "finalDisplayIndex": 11,
+        "dateOrderIndex": 11,
+        "parents": [
+          {
+            "hash": "fef740a2a078e809d362c586b31aa11a72231e40",
+            "lane": 0
+          }
+        ],
+        "children": [
+          {
+            "hash": "4c45dc9beb1a6606754abd53a2c8ec9bd73d54b8",
+            "lane": 0
+          },
+          {
+            "hash": "151ee2300d8b599b066245b4be24cb8b8a53e504",
+            "lane": 1
+          }
+        ],
+        "branches": [],
+        "laneBefore": 0,
+        "laneCurrent": 0,
+        "laneColor": 0,
+        "laneAfter": 0,
+        "activeLanesBefore": [
+          "Lane 0 -> 1cd3b1ce0d",
+          "Lane 1 -> fe0226f60e"
+        ],
+        "activeLanesAfterRaw": [
+          "Lane 0 -> fef740a2a0",
+          "Lane 1 -> fe0226f60e"
+        ],
+        "activeLanesAfter": [
+          "Lane 0 -> fef740a2a0",
+          "Lane 1 -> fe0226f60e"
+        ],
+        "events": [
+          "normal"
+        ],
+        "decision": "Commit déjà présent dans une lane existante",
+        "edges": [
+          {
+            "from": 0,
+            "to": 0,
+            "commit": "fef740a2a078e809d362c586b31aa11a72231e40"
+          }
+        ],
+        "moves": [],
+        "svgPaths": [
+          "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> "
+        ]
+      },
+      {
+        "row": 12,
+        "commit": "fef740a2a078e809d362c586b31aa11a72231e40",
+        "shortCommit": "fef740a",
+        "message": "Amélioration affichage des homonymes",
+        "authorDate": "2026-06-30T10:16:16+02:00",
+        "committerDate": "2026-06-30T10:16:16+02:00",
+        "topologicalRank": 12,
+        "finalDisplayIndex": 12,
+        "dateOrderIndex": 12,
+        "parents": [
+          {
+            "hash": "b1f2e2ef2d6f6cf843089be51a580a4b24f2cff9",
+            "lane": 0
+          }
+        ],
+        "children": [
+          {
+            "hash": "1cd3b1ce0dd6ba6d8b60e60115235c361135b08e",
+            "lane": 0
+          }
+        ],
+        "branches": [],
+        "laneBefore": 0,
+        "laneCurrent": 0,
+        "laneColor": 0,
+        "laneAfter": 0,
+        "activeLanesBefore": [
+          "Lane 0 -> fef740a2a0",
+          "Lane 1 -> fe0226f60e"
+        ],
+        "activeLanesAfterRaw": [
+          "Lane 0 -> b1f2e2ef2d",
+          "Lane 1 -> fe0226f60e"
+        ],
+        "activeLanesAfter": [
+          "Lane 0 -> b1f2e2ef2d",
+          "Lane 1 -> fe0226f60e"
+        ],
+        "events": [
+          "normal"
+        ],
+        "decision": "Commit déjà présent dans une lane existante",
+        "edges": [
+          {
+            "from": 0,
+            "to": 0,
+            "commit": "b1f2e2ef2d6f6cf843089be51a580a4b24f2cff9"
+          }
+        ],
+        "moves": [],
+        "svgPaths": [
+          "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> "
+        ]
+      },
+      {
+        "row": 13,
+        "commit": "b1f2e2ef2d6f6cf843089be51a580a4b24f2cff9",
+        "shortCommit": "b1f2e2e",
+        "message": "Gestion des homonymes",
+        "authorDate": "2026-06-29T16:51:52+02:00",
+        "committerDate": "2026-06-29T16:51:52+02:00",
+        "topologicalRank": 13,
+        "finalDisplayIndex": 13,
+        "dateOrderIndex": 13,
+        "parents": [
+          {
+            "hash": "3f7529339a9e0b800fe22baacb8b7b37ae85ddc3",
+            "lane": 0
+          }
+        ],
+        "children": [
+          {
+            "hash": "fef740a2a078e809d362c586b31aa11a72231e40",
+            "lane": 0
+          }
+        ],
+        "branches": [],
+        "laneBefore": 0,
+        "laneCurrent": 0,
+        "laneColor": 0,
+        "laneAfter": 0,
+        "activeLanesBefore": [
+          "Lane 0 -> b1f2e2ef2d",
+          "Lane 1 -> fe0226f60e"
+        ],
+        "activeLanesAfterRaw": [
+          "Lane 0 -> 3f7529339a",
+          "Lane 1 -> fe0226f60e"
+        ],
+        "activeLanesAfter": [
+          "Lane 0 -> 3f7529339a",
+          "Lane 1 -> fe0226f60e"
+        ],
+        "events": [
+          "normal"
+        ],
+        "decision": "Commit déjà présent dans une lane existante",
+        "edges": [
+          {
+            "from": 0,
+            "to": 0,
+            "commit": "3f7529339a9e0b800fe22baacb8b7b37ae85ddc3"
+          }
+        ],
+        "moves": [],
+        "svgPaths": [
+          "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> "
+        ]
+      },
+      {
+        "row": 14,
+        "commit": "3f7529339a9e0b800fe22baacb8b7b37ae85ddc3",
+        "shortCommit": "3f75293",
+        "message": "Merge branch 'Correction-erreur-phpstan' into develop",
+        "authorDate": "2026-06-25T10:19:06+02:00",
+        "committerDate": "2026-06-25T10:19:06+02:00",
+        "topologicalRank": 14,
+        "finalDisplayIndex": 14,
+        "dateOrderIndex": 14,
+        "parents": [
+          {
+            "hash": "306251663e5c09ff6037f76013102d5cfa425fc9",
+            "lane": 0
+          },
+          {
+            "hash": "ae2b9a96294fa9e2abaf461d8a9ec13826ff154f",
+            "lane": 2
+          }
+        ],
+        "children": [
+          {
+            "hash": "b1f2e2ef2d6f6cf843089be51a580a4b24f2cff9",
+            "lane": 0
+          }
+        ],
+        "branches": [],
+        "laneBefore": 0,
+        "laneCurrent": 0,
+        "laneColor": 0,
+        "laneAfter": 0,
+        "activeLanesBefore": [
+          "Lane 0 -> 3f7529339a",
+          "Lane 1 -> fe0226f60e"
+        ],
+        "activeLanesAfterRaw": [
+          "Lane 0 -> Test_intégration/unitaire",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629"
+        ],
+        "activeLanesAfter": [
+          "Lane 0 -> Test_intégration/unitaire",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629"
+        ],
+        "events": [
+          "merge"
+        ],
+        "decision": "Commit déjà présent dans une lane existante",
+        "edges": [
+          {
+            "from": 0,
+            "to": 0,
+            "commit": "306251663e5c09ff6037f76013102d5cfa425fc9"
+          },
+          {
+            "from": 0,
+            "to": 2,
+            "commit": "ae2b9a96294fa9e2abaf461d8a9ec13826ff154f"
+          }
+        ],
+        "moves": [],
+        "svgPaths": [
+          "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> ",
+          "<path class=\"graph-curve\" d=\"M 195.5 22 C 195.5 34, 227.5 32, 227.5 44\" stroke=\"#d8a62a\"/>"
+        ]
+      },
+      {
+        "row": 15,
+        "commit": "306251663e5c09ff6037f76013102d5cfa425fc9",
+        "shortCommit": "3062516",
+        "message": "Merge branch 'Detection_des_homonymes' into develop",
+        "authorDate": "2026-06-25T10:12:58+02:00",
+        "committerDate": "2026-06-25T10:12:58+02:00",
+        "topologicalRank": 17,
+        "finalDisplayIndex": 15,
+        "dateOrderIndex": 15,
+        "parents": [
+          {
+            "hash": "8514d7a44232f945c31019ee3c7a85a0b3c20804",
+            "lane": 0
+          },
+          {
+            "hash": "b767ae918a43bdf4d4d3053d6d0de6986dcfe792",
+            "lane": 3
+          }
+        ],
+        "children": [
+          {
+            "hash": "3f7529339a9e0b800fe22baacb8b7b37ae85ddc3",
+            "lane": 0
+          }
+        ],
+        "branches": [
+          "Test_intégration/unitaire"
+        ],
+        "laneBefore": 0,
+        "laneCurrent": 0,
+        "laneColor": 0,
+        "laneAfter": 0,
+        "activeLanesBefore": [
+          "Lane 0 -> Test_intégration/unitaire",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629"
+        ],
+        "activeLanesAfterRaw": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> b767ae918a"
+        ],
+        "activeLanesAfter": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> b767ae918a"
+        ],
+        "events": [
+          "merge"
+        ],
+        "decision": "Commit déjà présent dans une lane existante",
+        "edges": [
+          {
+            "from": 0,
+            "to": 0,
+            "commit": "8514d7a44232f945c31019ee3c7a85a0b3c20804"
+          },
+          {
+            "from": 0,
+            "to": 3,
+            "commit": "b767ae918a43bdf4d4d3053d6d0de6986dcfe792"
+          }
+        ],
+        "moves": [],
+        "svgPaths": [
+          "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#24b4c2\" stroke-dasharray=\"2 5\"/> ",
+          "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 227.5 0 L 227.5 22\" stroke=\"#d8a62a\"/> ",
+          "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#e95f36\"/> ",
+          "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 227.5 22 L 227.5 44\" stroke=\"#d8a62a\"/> ",
+          "<path class=\"graph-curve\" d=\"M 195.5 22 C 195.5 34, 243.5 32, 243.5 44\" stroke=\"#d36b9d\"/>"
+        ]
+      },
+      {
+        "row": 16,
+        "commit": "b767ae918a43bdf4d4d3053d6d0de6986dcfe792",
+        "shortCommit": "b767ae9",
+        "message": "Ajoute la recherche STAR controlee des homonymes",
+        "authorDate": "2026-06-11T15:48:35+02:00",
+        "committerDate": "2026-06-11T15:48:35+02:00",
+        "topologicalRank": 18,
+        "finalDisplayIndex": 16,
+        "dateOrderIndex": 16,
+        "parents": [
+          {
+            "hash": "78c8535424f3a9c3d36f84d34eb5ce3a075a5294",
+            "lane": 3
+          }
+        ],
+        "children": [
+          {
+            "hash": "306251663e5c09ff6037f76013102d5cfa425fc9",
+            "lane": 0
+          }
+        ],
+        "branches": [],
+        "laneBefore": 3,
+        "laneCurrent": 3,
+        "laneColor": 4,
+        "laneAfter": 3,
+        "activeLanesBefore": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> b767ae918a"
+        ],
+        "activeLanesAfterRaw": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> 78c8535424"
+        ],
+        "activeLanesAfter": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> 78c8535424"
+        ],
+        "events": [
+          "normal"
+        ],
+        "decision": "Commit déjà présent dans une lane existante",
+        "edges": [
+          {
+            "from": 3,
+            "to": 3,
+            "commit": "78c8535424f3a9c3d36f84d34eb5ce3a075a5294"
+          }
+        ],
+        "moves": [],
+        "svgPaths": [
+          "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#e95f36\"/> ",
+          "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 227.5 0 L 227.5 22\" stroke=\"#d8a62a\"/> ",
+          "<path d=\"M 243.5 0 L 243.5 22\" stroke=\"#d36b9d\"/> ",
+          "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#e95f36\"/> ",
+          "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 227.5 22 L 227.5 44\" stroke=\"#d8a62a\"/> ",
+          "<path d=\"M 243.5 22 L 243.5 44\" stroke=\"#d36b9d\"/> "
+        ]
+      },
+      {
+        "row": 17,
+        "commit": "78c8535424f3a9c3d36f84d34eb5ce3a075a5294",
+        "shortCommit": "78c8535",
+        "message": "Corrige les criteres inverses des homonymes",
+        "authorDate": "2026-06-11T15:20:39+02:00",
+        "committerDate": "2026-06-11T15:20:39+02:00",
+        "topologicalRank": 19,
+        "finalDisplayIndex": 17,
+        "dateOrderIndex": 17,
+        "parents": [
+          {
+            "hash": "c65456ff01057cec520e218003294a06360be183",
+            "lane": 3
+          }
+        ],
+        "children": [
+          {
+            "hash": "b767ae918a43bdf4d4d3053d6d0de6986dcfe792",
+            "lane": 3
+          }
+        ],
+        "branches": [],
+        "laneBefore": 3,
+        "laneCurrent": 3,
+        "laneColor": 4,
+        "laneAfter": 3,
+        "activeLanesBefore": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> 78c8535424"
+        ],
+        "activeLanesAfterRaw": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> c65456ff01"
+        ],
+        "activeLanesAfter": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> c65456ff01"
+        ],
+        "events": [
+          "normal"
+        ],
+        "decision": "Commit déjà présent dans une lane existante",
+        "edges": [
+          {
+            "from": 3,
+            "to": 3,
+            "commit": "c65456ff01057cec520e218003294a06360be183"
+          }
+        ],
+        "moves": [],
+        "svgPaths": [
+          "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#e95f36\"/> ",
+          "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 227.5 0 L 227.5 22\" stroke=\"#d8a62a\"/> ",
+          "<path d=\"M 243.5 0 L 243.5 22\" stroke=\"#d36b9d\"/> ",
+          "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#e95f36\"/> ",
+          "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 227.5 22 L 227.5 44\" stroke=\"#d8a62a\"/> ",
+          "<path d=\"M 243.5 22 L 243.5 44\" stroke=\"#d36b9d\"/> "
+        ]
+      },
+      {
+        "row": 18,
+        "commit": "c65456ff01057cec520e218003294a06360be183",
+        "shortCommit": "c65456f",
+        "message": "Renforce la detection exacte des homonymes",
+        "authorDate": "2026-06-11T15:09:59+02:00",
+        "committerDate": "2026-06-11T15:09:59+02:00",
+        "topologicalRank": 20,
+        "finalDisplayIndex": 18,
+        "dateOrderIndex": 18,
+        "parents": [
+          {
+            "hash": "0bf208d1465a577bc4436db5e33aad2c1f1b2f16",
+            "lane": 3
+          }
+        ],
+        "children": [
+          {
+            "hash": "78c8535424f3a9c3d36f84d34eb5ce3a075a5294",
+            "lane": 3
+          }
+        ],
+        "branches": [],
+        "laneBefore": 3,
+        "laneCurrent": 3,
+        "laneColor": 4,
+        "laneAfter": 3,
+        "activeLanesBefore": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> c65456ff01"
+        ],
+        "activeLanesAfterRaw": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> 0bf208d146"
+        ],
+        "activeLanesAfter": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> 0bf208d146"
+        ],
+        "events": [
+          "normal"
+        ],
+        "decision": "Commit déjà présent dans une lane existante",
+        "edges": [
+          {
+            "from": 3,
+            "to": 3,
+            "commit": "0bf208d1465a577bc4436db5e33aad2c1f1b2f16"
+          }
+        ],
+        "moves": [],
+        "svgPaths": [
+          "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#e95f36\"/> ",
+          "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 227.5 0 L 227.5 22\" stroke=\"#d8a62a\"/> ",
+          "<path d=\"M 243.5 0 L 243.5 22\" stroke=\"#d36b9d\"/> ",
+          "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#e95f36\"/> ",
+          "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 227.5 22 L 227.5 44\" stroke=\"#d8a62a\"/> ",
+          "<path d=\"M 243.5 22 L 243.5 44\" stroke=\"#d36b9d\"/> "
+        ]
+      },
+      {
+        "row": 19,
+        "commit": "0bf208d1465a577bc4436db5e33aad2c1f1b2f16",
+        "shortCommit": "0bf208d",
+        "message": "Complete les tests de detection des homonymes",
+        "authorDate": "2026-06-11T14:27:11+02:00",
+        "committerDate": "2026-06-11T14:27:11+02:00",
+        "topologicalRank": 21,
+        "finalDisplayIndex": 19,
+        "dateOrderIndex": 19,
+        "parents": [
+          {
+            "hash": "c7b3cb30b5e31f299b19764c796b5daf6da5a852",
+            "lane": 3
+          }
+        ],
+        "children": [
+          {
+            "hash": "c65456ff01057cec520e218003294a06360be183",
+            "lane": 3
+          }
+        ],
+        "branches": [],
+        "laneBefore": 3,
+        "laneCurrent": 3,
+        "laneColor": 4,
+        "laneAfter": 3,
+        "activeLanesBefore": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> 0bf208d146"
+        ],
+        "activeLanesAfterRaw": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> c7b3cb30b5"
+        ],
+        "activeLanesAfter": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> c7b3cb30b5"
+        ],
+        "events": [
+          "normal"
+        ],
+        "decision": "Commit déjà présent dans une lane existante",
+        "edges": [
+          {
+            "from": 3,
+            "to": 3,
+            "commit": "c7b3cb30b5e31f299b19764c796b5daf6da5a852"
+          }
+        ],
+        "moves": [],
+        "svgPaths": [
+          "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#e95f36\"/> ",
+          "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 227.5 0 L 227.5 22\" stroke=\"#d8a62a\"/> ",
+          "<path d=\"M 243.5 0 L 243.5 22\" stroke=\"#d36b9d\"/> ",
+          "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#e95f36\"/> ",
+          "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 227.5 22 L 227.5 44\" stroke=\"#d8a62a\"/> ",
+          "<path d=\"M 243.5 22 L 243.5 44\" stroke=\"#d36b9d\"/> "
+        ]
+      },
+      {
+        "row": 20,
+        "commit": "c7b3cb30b5e31f299b19764c796b5daf6da5a852",
+        "shortCommit": "c7b3cb3",
+        "message": "Ajoute les tests de detection des homonymes",
+        "authorDate": "2026-06-11T14:10:42+02:00",
+        "committerDate": "2026-06-11T14:10:42+02:00",
+        "topologicalRank": 22,
+        "finalDisplayIndex": 20,
+        "dateOrderIndex": 20,
+        "parents": [
+          {
+            "hash": "8514d7a44232f945c31019ee3c7a85a0b3c20804",
+            "lane": 0
+          }
+        ],
+        "children": [
+          {
+            "hash": "0bf208d1465a577bc4436db5e33aad2c1f1b2f16",
+            "lane": 3
+          }
+        ],
+        "branches": [],
+        "laneBefore": 3,
+        "laneCurrent": 3,
+        "laneColor": 4,
+        "laneAfter": 0,
+        "activeLanesBefore": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> c7b3cb30b5"
+        ],
+        "activeLanesAfterRaw": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> free"
+        ],
+        "activeLanesAfter": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629"
+        ],
+        "events": [
+          "normal"
+        ],
+        "decision": "Commit déjà présent dans une lane existante",
+        "edges": [
+          {
+            "from": 3,
+            "to": 0,
+            "commit": "8514d7a44232f945c31019ee3c7a85a0b3c20804"
+          }
+        ],
+        "moves": [],
+        "svgPaths": [
+          "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#e95f36\"/> ",
+          "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 227.5 0 L 227.5 22\" stroke=\"#d8a62a\"/> ",
+          "<path d=\"M 243.5 0 L 243.5 22\" stroke=\"#d36b9d\"/> ",
+          "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#e95f36\"/> ",
+          "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 227.5 22 L 227.5 44\" stroke=\"#d8a62a\"/> ",
+          "<path class=\"graph-curve\" d=\"M 243.5 22 C 243.5 34, 195.5 32, 195.5 44\" stroke=\"#e95f36\"/>"
+        ]
+      },
+      {
+        "row": 21,
+        "commit": "b94bef3b5894b52cab6f238b3caf2ba0121b10a9",
+        "shortCommit": "b94bef3",
+        "message": "Merge branch 'preproduction'",
+        "authorDate": "2026-06-10T09:27:32+02:00",
+        "committerDate": "2026-06-10T09:27:32+02:00",
+        "topologicalRank": 23,
+        "finalDisplayIndex": 21,
+        "dateOrderIndex": 21,
+        "parents": [
+          {
+            "hash": "035b9a0c32ca9daacfd96862cd2f8a30c52bb63d",
+            "lane": 3
+          },
+          {
+            "hash": "fe0226f60e4b4bb97a0177831963a2d9583b12c6",
+            "lane": 1
+          }
+        ],
+        "children": [],
+        "branches": [
+          "master",
+          "origin",
+          "origin/master"
+        ],
+        "laneBefore": -1,
+        "laneCurrent": 3,
+        "laneColor": 5,
+        "laneAfter": 3,
+        "activeLanesBefore": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> master, origin, origin/master"
+        ],
+        "activeLanesAfterRaw": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> 035b9a0c32"
+        ],
+        "activeLanesAfter": [
+          "Lane 0 -> 8514d7a442",
+          "Lane 1 -> fe0226f60e",
+          "Lane 2 -> ae2b9a9629",
+          "Lane 3 -> 035b9a0c32"
+        ],
+        "events": [
+          "merge",
+          "branch start"
+        ],
+        "decision": "Création d'une nouvelle lane",
+        "edges": [
+          {
+            "from": 3,
+            "to": 3,
+            "commit": "035b9a0c32ca9daacfd96862cd2f8a30c52bb63d"
+          },
+          {
+            "from": 3,
+            "to": 1,
+            "commit": "fe0226f60e4b4bb97a0177831963a2d9583b12c6"
+          }
+        ],
+        "moves": [],
+        "svgPaths": [
+          "<path d=\"M 195.5 0 L 195.5 22\" stroke=\"#e95f36\"/> ",
+          "<path d=\"M 211.5 0 L 211.5 22\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 227.5 0 L 227.5 22\" stroke=\"#d8a62a\"/> ",
+          "<path d=\"M 195.5 22 L 195.5 44\" stroke=\"#e95f36\"/> ",
+          "<path d=\"M 211.5 22 L 211.5 44\" stroke=\"#57a773\"/> ",
+          "<path d=\"M 227.5 22 L 227.5 44\" stroke=\"#d8a62a\"/> ",
+          "<path d=\"M 243.5 22 L 243.5 44\" stroke=\"#8a77cf\"/> ",
+          "<path class=\"graph-curve\" d=\"M 243.5 22 C 243.5 34, 211.5 32, 211.5 44\" stroke=\"#57a773\"/>"
+        ]
+      }
+    ]
+  }
+}

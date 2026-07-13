@@ -1,0 +1,17 @@
+{
+  "name": "forkline",
+  "version": "0.1.0",
+  "description": "A focused desktop Git client for local, private and self-hosted repositories.",
+  "main": "src/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "electron .",
+    "debug": "DEBUG_GRAPH_LAYOUT=1 electron .",
+    "dev": "electron . --dev",
+    "test": "node --test",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/git-service.js && node --check src/renderer/graph-layout.js && node --check src/renderer/app.js"
+  },
+  "devDependencies": {
+    "electron": "^41.7.1"
+  }
+}
