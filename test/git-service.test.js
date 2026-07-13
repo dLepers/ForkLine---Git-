@@ -58,6 +58,40 @@ test('opens a repository and reads its history', async () => {
   assert.equal(snapshot.commits[0].finalDisplayIndex, 0);
   assert.equal(snapshot.orderDebug, null);
   assert.equal(snapshot.status.files.length, 0);
+  assert.deepEqual({ name: snapshot.identity.name, email: snapshot.identity.email, scope: snapshot.identity.scope }, { name: 'Forkline Test', email: 'test@forkline.local', scope: 'local' });
+});
+
+test('updates the repository Git identity locally', async () => {
+  await git.setIdentity('Daisy Local', 'daisy@example.test', 'local');
+  const identity = await git.identity();
+  assert.equal(identity.name, 'Daisy Local');
+  assert.equal(identity.email, 'daisy@example.test');
+  assert.equal(identity.scope, 'local');
+  assert.equal((await command(['config', '--local', '--get', 'user.name'])).stdout.trim(), 'Daisy Local');
+});
+
+test('detects Git LFS availability and tracked patterns', async () => {
+  await fs.writeFile(path.join(repository, '.gitattributes'), '*.bin filter=lfs diff=lfs merge=lfs -text\n*.txt text\n');
+  const lfs = await git.lfsStatus();
+  assert.deepEqual(lfs.patterns, ['*.bin']);
+  assert.equal(typeof lfs.available, 'boolean');
+  if (!lfs.available) await assert.rejects(() => git.trackLfs('*.zip'), /Git LFS n’est pas installé/);
+});
+
+test('detects active hooks and preserves their error output', async () => {
+  const hooksPath = path.join(repository, '.git', 'hooks');
+  const hookPath = path.join(hooksPath, 'pre-commit');
+  await fs.writeFile(hookPath, '#!/bin/sh\necho "Hook blocked this commit" >&2\nexit 1\n', { mode: 0o755 });
+  const preferences = await git.setCommitPreferences({ scope: 'local', gpgSign: false, signingKey: '' });
+  assert.equal(preferences.gpgSign, false);
+  assert.deepEqual(preferences.hooks, ['pre-commit']);
+
+  await fs.appendFile(path.join(repository, 'README.md'), 'Blocked\n');
+  await git.stage(['README.md']);
+  await assert.rejects(() => git.commit('Blocked by hook', { sign: false }), (error) => {
+    assert.match(error.details, /Hook blocked this commit/);
+    return true;
+  });
 });
 
 test('reads, stages and unstages a changed file', async () => {
@@ -75,6 +109,28 @@ test('reads, stages and unstages a changed file', async () => {
   assert.equal(snapshot.status.files[0].workingTree, 'M');
 });
 
+test('discards, stages and unstages a hunk through git apply stdin', async () => {
+  const readme = path.join(repository, 'README.md');
+  await fs.appendFile(readme, 'Hunk change\n');
+  let patch = await git.diff('README.md', false);
+
+  await git.applyHunk(patch, false, true);
+  assert.equal((await git.status()).files.length, 0);
+
+  await fs.appendFile(readme, 'Hunk change\n');
+  patch = await git.diff('README.md', false);
+  await git.applyHunk(patch, true, false);
+  let status = await git.status();
+  assert.equal(status.files[0].staged, true);
+  assert.equal(status.files[0].workingTree, ' ');
+
+  patch = await git.diff('README.md', true);
+  await git.applyHunk(patch, true, true);
+  status = await git.status();
+  assert.equal(status.files[0].staged, false);
+  assert.equal(status.files[0].workingTree, 'M');
+});
+
 test('creates a branch and commits staged content', async () => {
   await git.createBranch('feature/test');
   await fs.writeFile(path.join(repository, 'feature.txt'), 'Feature\n');
@@ -84,6 +140,420 @@ test('creates a branch and commits staged content', async () => {
   const snapshot = await git.snapshot();
   assert.equal(snapshot.head, 'feature/test');
   assert.equal(snapshot.commits[0].subject, 'Add feature');
+});
+
+test('amends the last commit with staged content', async () => {
+  const previousHash = (await git.snapshot()).headHash;
+  await fs.appendFile(path.join(repository, 'README.md'), 'Amended line\n');
+  await git.stage(['README.md']);
+  await git.commit('Updated initial commit', { amend: true });
+
+  const snapshot = await git.snapshot();
+  assert.notEqual(snapshot.headHash, previousHash);
+  assert.equal(snapshot.commits[0].subject, 'Updated initial commit');
+  assert.equal(snapshot.commits.length, 1);
+  assert.match(await fs.readFile(path.join(repository, 'README.md'), 'utf8'), /Amended line/);
+});
+
+test('reorders and drops commits with an interactive rebase plan', async () => {
+  const baseHash = (await git.snapshot()).headHash;
+  for (const [file, subject] of [['one.txt', 'Commit one'], ['two.txt', 'Commit two'], ['three.txt', 'Commit three']]) {
+    await fs.writeFile(path.join(repository, file), `${subject}\n`);
+    await git.stage([file]);
+    await git.commit(subject);
+  }
+  const plan = await git.interactiveRebasePlan(baseHash);
+  assert.deepEqual(plan.map((commit) => commit.subject), ['Commit one', 'Commit two', 'Commit three']);
+
+  const result = await git.interactiveRebase(baseHash, [
+    { hash: plan[0].hash, action: 'pick' },
+    { hash: plan[2].hash, action: 'pick' },
+    { hash: plan[1].hash, action: 'drop' },
+  ]);
+
+  assert.equal(result.conflicted, false);
+  assert.deepEqual((await git.commits()).slice(0, 3).map((commit) => commit.subject), ['Commit three', 'Commit one', 'Initial commit']);
+  await assert.rejects(() => fs.access(path.join(repository, 'two.txt')));
+});
+
+test('rewords multiple commits during an interactive rebase', async () => {
+  const baseHash = (await git.snapshot()).headHash;
+  for (const [file, subject] of [['first.txt', 'Old first message'], ['second.txt', 'Old second message']]) {
+    await fs.writeFile(path.join(repository, file), `${subject}\n`);
+    await git.stage([file]);
+    await git.commit(subject);
+  }
+  const plan = await git.interactiveRebasePlan(baseHash);
+  const result = await git.interactiveRebase(baseHash, plan.map((commit, index) => ({ hash: commit.hash, action: 'reword', message: `New message ${index + 1}` })));
+
+  assert.equal(result.conflicted, false);
+  assert.deepEqual((await git.commits()).slice(0, 2).map((commit) => commit.subject), ['New message 2', 'New message 1']);
+});
+
+test('manages a branch lifecycle from a selected revision', async () => {
+  const initialHash = (await git.snapshot()).headHash;
+
+  await git.createBranch('feature/lifecycle', initialHash);
+  assert.equal((await git.snapshot()).head, 'feature/lifecycle');
+  await git.renameBranch('feature/lifecycle', 'feature/renamed');
+  assert.equal((await git.snapshot()).head, 'feature/renamed');
+
+  await git.switchBranch('main');
+  await git.deleteBranch('feature/renamed');
+  assert.equal((await git.snapshot()).branches.some((branch) => branch.name === 'feature/renamed'), false);
+});
+
+test('undoes and redoes a commit without discarding its changes', async () => {
+  const initialHash = (await git.snapshot()).headHash;
+  await fs.writeFile(path.join(repository, 'undo.txt'), 'Content preserved\n');
+  await git.stage(['undo.txt']);
+  await git.commit('Commit to undo');
+  const committedHash = (await git.snapshot()).headHash;
+
+  const plan = await git.undoPlan();
+  assert.equal(plan.available, true);
+  assert.equal(plan.mode, 'soft');
+  const redoAction = await git.undoLastAction();
+  assert.equal((await git.snapshot()).headHash, initialHash);
+  assert.equal((await git.status()).files.find((file) => file.path === 'undo.txt')?.staged, true);
+  assert.equal(await fs.readFile(path.join(repository, 'undo.txt'), 'utf8'), 'Content preserved\n');
+
+  await git.redoLastAction(redoAction);
+  assert.equal((await git.snapshot()).headHash, committedHash);
+  assert.equal((await git.status()).files.length, 0);
+});
+
+test('undoes and redoes several consecutive commits while preserving the index', async () => {
+  const initialHash = (await git.snapshot()).headHash;
+  const committedHashes = [];
+  for (const [file, content] of [['history-one.txt', 'One\n'], ['history-two.txt', 'Two\n']]) {
+    await fs.writeFile(path.join(repository, file), content);
+    await git.stage([file]);
+    await git.commit(`Add ${file}`);
+    committedHashes.push((await git.snapshot()).headHash);
+  }
+
+  const plans = await git.undoPlans();
+  assert.equal(plans.length >= 2, true);
+  let expected = null;
+  const redoActions = [];
+  for (const plan of plans.slice(0, 2)) {
+    const redoAction = await git.applyUndoPlan(plan, expected);
+    redoActions.push(redoAction);
+    expected = redoAction.expected;
+  }
+  assert.equal((await git.snapshot()).headHash, initialHash);
+  assert.deepEqual((await git.status()).files.map((file) => file.path).sort(), ['history-one.txt', 'history-two.txt']);
+  assert.equal((await git.status()).files.every((file) => file.staged), true);
+
+  for (const redoAction of redoActions.reverse()) await git.redoLastAction(redoAction);
+  assert.equal((await git.snapshot()).headHash, committedHashes[1]);
+  assert.equal((await git.status()).files.length, 0);
+  assert.match((await git.reflogEntries(1))[0].subject, /^forkline redo/);
+});
+
+test('undoes and redoes a branch checkout', async () => {
+  await git.createBranch('feature/history');
+  await git.switchBranch('main');
+
+  const redoAction = await git.undoLastAction();
+  assert.equal(await git.head(), 'feature/history');
+  await git.redoLastAction(redoAction);
+  assert.equal(await git.head(), 'main');
+});
+
+test('checks out a commit in detached HEAD mode', async () => {
+  const initialHash = (await git.snapshot()).headHash;
+
+  await git.checkoutCommit(initialHash);
+
+  assert.equal((await command(['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim(), 'HEAD');
+  assert.equal((await git.snapshot()).headHash, initialHash);
+});
+
+test('cherry-picks and reverts a commit', async () => {
+  await git.createBranch('feature/cherry');
+  await fs.writeFile(path.join(repository, 'picked.txt'), 'Picked\n');
+  await git.stage(['picked.txt']);
+  await git.commit('Commit to pick');
+  const pickedHash = (await git.snapshot()).headHash;
+  await git.switchBranch('main');
+
+  const picked = await git.cherryPick(pickedHash);
+  assert.equal(picked.conflicted, false);
+  assert.equal(await fs.readFile(path.join(repository, 'picked.txt'), 'utf8'), 'Picked\n');
+
+  const reverted = await git.revertCommit((await git.snapshot()).headHash);
+  assert.equal(reverted.conflicted, false);
+  await assert.rejects(() => fs.access(path.join(repository, 'picked.txt')));
+});
+
+test('creates lightweight and annotated tags and compares a revision', async () => {
+  const initialHash = (await git.snapshot()).headHash;
+  await git.createTag('v1.0.0', initialHash);
+  await git.createTag('v1.0.1', initialHash, 'Version annotée');
+  await fs.appendFile(path.join(repository, 'README.md'), 'Comparison\n');
+
+  assert.equal((await command(['rev-parse', 'v1.0.0'])).stdout.trim(), initialHash);
+  assert.match((await command(['cat-file', '-t', 'v1.0.1'])).stdout, /tag/);
+  const tags = await git.tags();
+  assert.deepEqual(tags.map((tag) => tag.name), ['v1.0.0', 'v1.0.1']);
+  assert.equal(tags.find((tag) => tag.name === 'v1.0.1').annotated, true);
+  assert.match(await git.compareWithWorktree(initialHash), /\+Comparison/);
+
+  await git.deleteTag('v1.0.0');
+  assert.deepEqual((await git.tags()).map((tag) => tag.name), ['v1.0.1']);
+});
+
+test('searches commits and exposes file history, blame and revision comparison', async () => {
+  const initialHash = (await git.snapshot()).headHash;
+  await fs.appendFile(path.join(repository, 'README.md'), 'Historical line\n');
+  await git.stage(['README.md']);
+  await git.commit('Document searchable history');
+  const latestHash = (await git.snapshot()).headHash;
+
+  const results = await git.searchHistory('searchable');
+  assert.equal(results.length, 1);
+  assert.equal(results[0].hash, latestHash);
+  const filtered = await git.searchHistory({ query: 'searchable', author: 'Forkline', file: 'README.md', after: '2000-01-01', before: '2099-12-31', ref: 'main' });
+  assert.deepEqual(filtered.map((commit) => commit.hash), [latestHash]);
+  await assert.rejects(() => git.searchHistory({ after: 'hier' }), /Filtre de date after invalide/);
+
+  const history = await git.fileHistory('README.md');
+  assert.deepEqual(history.map((commit) => commit.subject), ['Document searchable history', 'Initial commit']);
+  assert.match(await git.blame('README.md'), /Historical line/);
+  assert.match(await git.compareRevisions(initialHash, latestHash), /\+Historical line/);
+  assert.deepEqual(await git.commitFiles(latestHash), [{ status: 'M', path: 'README.md', originalPath: null }]);
+  assert.match(await git.commitFileDiff(latestHash, 'README.md'), /\+Historical line/);
+});
+
+test('adds, renames, fetches and removes a remote', async () => {
+  const remoteRepository = await fs.mkdtemp(path.join(os.tmpdir(), 'forkline-remote-'));
+  try {
+    await exec('git', ['init', '--bare', remoteRepository], { encoding: 'utf8' });
+    await git.addRemote('upstream', remoteRepository);
+    assert.equal((await git.remotes())[0].name, 'upstream');
+    await git.push({ remote: 'upstream', branch: 'main', setUpstream: true });
+    assert.match((await exec('git', ['--git-dir', remoteRepository, 'show-ref', '--verify', 'refs/heads/main'], { encoding: 'utf8' })).stdout, /refs\/heads\/main/);
+    await git.createTag('remote-test', (await git.snapshot()).headHash);
+    await git.pushTag('remote-test', 'upstream');
+    assert.match((await exec('git', ['--git-dir', remoteRepository, 'show-ref', '--verify', 'refs/tags/remote-test'], { encoding: 'utf8' })).stdout, /refs\/tags\/remote-test/);
+    await git.deleteRemoteTag('remote-test', 'upstream');
+    await assert.rejects(() => exec('git', ['--git-dir', remoteRepository, 'show-ref', '--verify', 'refs/tags/remote-test'], { encoding: 'utf8' }));
+    await git.fetchRemote('upstream', true);
+    await git.renameRemote('upstream', 'origin');
+    assert.equal((await git.remotes())[0].name, 'origin');
+    await git.removeRemote('origin');
+    assert.deepEqual(await git.remotes(), []);
+  } finally {
+    await fs.rm(remoteRepository, { recursive: true, force: true });
+  }
+});
+
+test('rejects an unknown pull strategy', async () => {
+  await assert.rejects(() => git.pull({ strategy: 'unsafe' }), /Stratégie de pull invalide/);
+});
+
+test('reports merge conflicts instead of hiding the repository state', async () => {
+  await git.createBranch('feature/conflict');
+  await fs.writeFile(path.join(repository, 'README.md'), '# Feature\n');
+  await git.stage(['README.md']);
+  await git.commit('Feature version');
+  await git.switchBranch('main');
+  await fs.writeFile(path.join(repository, 'README.md'), '# Main\n');
+  await git.stage(['README.md']);
+  await git.commit('Main version');
+
+  const result = await git.mergeBranch('feature/conflict');
+
+  assert.equal(result.conflicted, true);
+  assert.deepEqual(result.conflicts, ['README.md']);
+  assert.equal((await git.status()).files[0].conflicted, true);
+  const versions = await git.conflictVersions('README.md');
+  assert.match(versions.base, /# Test/);
+  assert.equal(versions.ours, '# Main\n');
+  assert.equal(versions.theirs, '# Feature\n');
+  assert.match(versions.result, /<<<<<<< HEAD/);
+  assert.deepEqual(await git.operationState(), { type: 'merge', label: 'Fusion en cours' });
+
+  await git.abortOperation('merge');
+  assert.equal(await git.operationState(), null);
+  assert.equal((await git.status()).files.length, 0);
+
+  const secondAttempt = await git.mergeBranch('feature/conflict');
+  assert.equal(secondAttempt.conflicted, true);
+  await git.resolveConflict('README.md', 'ours');
+  assert.equal(await fs.readFile(path.join(repository, 'README.md'), 'utf8'), '# Main\n');
+  assert.equal((await git.status()).files.some((file) => file.conflicted), false);
+  const continued = await git.continueOperation('merge');
+  assert.equal(continued.conflicted, false);
+  assert.equal(await git.operationState(), null);
+  assert.equal((await git.status()).files.length, 0);
+});
+
+test('writes and stages a custom three-way conflict resolution', async () => {
+  await git.createBranch('feature/custom-resolution');
+  await fs.writeFile(path.join(repository, 'README.md'), '# Feature custom\n');
+  await git.stage(['README.md']);
+  await git.commit('Feature custom version');
+  await git.switchBranch('main');
+  await fs.writeFile(path.join(repository, 'README.md'), '# Main custom\n');
+  await git.stage(['README.md']);
+  await git.commit('Main custom version');
+  assert.equal((await git.mergeBranch('feature/custom-resolution')).conflicted, true);
+
+  await git.resolveConflictContent('README.md', '# Combined result\n');
+  assert.equal((await git.status()).files.some((file) => file.conflicted), false);
+  assert.equal(await fs.readFile(path.join(repository, 'README.md'), 'utf8'), '# Combined result\n');
+  assert.equal((await git.continueOperation('merge')).conflicted, false);
+});
+
+test('validates reset modes and refuses to delete the active branch', async () => {
+  const initialHash = (await git.snapshot()).headHash;
+
+  await assert.rejects(() => git.resetToCommit(initialHash, 'invalid'), /Mode de réinitialisation invalide/);
+  await assert.rejects(() => git.deleteBranch('main'), /branche actuellement active/);
+});
+
+test('includes the WIP and index commits created by a stash', async () => {
+  await fs.writeFile(path.join(repository, 'README.md'), '# Indexed change\n');
+  await git.stage(['README.md']);
+  await fs.appendFile(path.join(repository, 'README.md'), 'Working tree change\n');
+  await command(['stash', 'push', '-m', 'Travail temporaire']);
+
+  const snapshot = await git.snapshot();
+  const stashHead = snapshot.commits.find((commit) => commit.refs.includes('refs/stash'));
+  assert.ok(stashHead);
+  assert.match(stashHead.subject, /^On main: Travail temporaire$/);
+  assert.equal(stashHead.parents.length, 2);
+  assert.ok(snapshot.commits.some((commit) => commit.hash === stashHead.parents[1] && commit.subject.startsWith('index on main:')));
+});
+
+test('creates, displays, applies and drops a stash for selected files', async () => {
+  await fs.writeFile(path.join(repository, 'kept.txt'), 'Original\n');
+  await command(['add', 'kept.txt']);
+  await command(['commit', '-m', 'Add second file']);
+
+  await fs.appendFile(path.join(repository, 'README.md'), 'Stashed change\n');
+  await fs.appendFile(path.join(repository, 'kept.txt'), 'Visible change\n');
+  await fs.writeFile(path.join(repository, 'new.txt'), 'Untracked change\n');
+  await git.createStash({
+    message: 'Travail sélectionné',
+    includeUntracked: true,
+    files: ['README.md', 'new.txt'],
+  });
+
+  let snapshot = await git.snapshot();
+  assert.equal(snapshot.stashes.length, 1);
+  assert.equal(snapshot.stashes[0].message, 'Travail sélectionné');
+  assert.equal(snapshot.stashes[0].branch, 'main');
+  assert.deepEqual(snapshot.stashes[0].files.sort(), ['README.md', 'new.txt']);
+  assert.equal(snapshot.status.files.some((file) => file.path === 'kept.txt'), true);
+  assert.equal(snapshot.status.files.some((file) => file.path === 'README.md'), false);
+  assert.equal(snapshot.status.files.some((file) => file.path === 'new.txt'), false);
+
+  const stashCommits = snapshot.commits.filter((commit) => commit.stashRef === 'stash@{0}');
+  assert.equal(stashCommits.some((commit) => commit.stashRole === 'worktree'), true);
+  assert.equal(stashCommits.some((commit) => commit.stashRole === 'index'), true);
+  assert.equal(stashCommits.some((commit) => commit.stashRole === 'untracked'), true);
+  assert.match(await git.stashDiff('stash@{0}'), /Stashed change/);
+
+  const restored = await git.restoreStash('stash@{0}', 'apply');
+  assert.equal(restored.conflicted, false);
+  snapshot = await git.snapshot();
+  assert.equal(snapshot.status.files.some((file) => file.path === 'README.md'), true);
+  assert.equal(snapshot.status.files.some((file) => file.path === 'new.txt'), true);
+  assert.equal(snapshot.stashes.length, 1);
+
+  await git.dropStash('stash@{0}');
+  snapshot = await git.snapshot();
+  assert.equal(snapshot.stashes.length, 0);
+});
+
+test('can keep staged changes while creating a stash', async () => {
+  await fs.writeFile(path.join(repository, 'working.txt'), 'Original\n');
+  await git.stage(['working.txt']);
+  await git.commit('Add working file');
+  await fs.appendFile(path.join(repository, 'README.md'), 'Indexed change\n');
+  await git.stage(['README.md']);
+  await fs.appendFile(path.join(repository, 'working.txt'), 'Working change\n');
+
+  await git.createStash({
+    message: 'Garder index',
+    keepIndex: true,
+    files: ['README.md', 'working.txt'],
+  });
+
+  const status = await git.status();
+  assert.equal(status.files.find((file) => file.path === 'README.md')?.staged, true);
+  assert.equal(status.files.some((file) => file.path === 'working.txt'), false);
+});
+
+test('pops a stash and removes it from the list', async () => {
+  await fs.appendFile(path.join(repository, 'README.md'), 'Pop change\n');
+  await git.createStash({ message: 'À réappliquer', files: ['README.md'] });
+
+  const restored = await git.restoreStash('stash@{0}', 'pop');
+
+  assert.equal(restored.conflicted, false);
+  assert.equal((await git.stashes()).length, 0);
+  assert.match(await fs.readFile(path.join(repository, 'README.md'), 'utf8'), /Pop change/);
+});
+
+test('applies only selected tracked files from a stash', async () => {
+  await fs.writeFile(path.join(repository, 'other.txt'), 'Original\n');
+  await git.stage(['other.txt']);
+  await git.commit('Add other file');
+  await fs.appendFile(path.join(repository, 'README.md'), 'Selected change\n');
+  await fs.appendFile(path.join(repository, 'other.txt'), 'Other change\n');
+  await git.createStash({ message: 'Deux fichiers', files: ['README.md', 'other.txt'] });
+
+  const restored = await git.restoreStash('stash@{0}', 'apply', ['README.md']);
+  const status = await git.status();
+
+  assert.equal(restored.partial, true);
+  assert.deepEqual(status.files.map((file) => file.path), ['README.md']);
+  assert.match(await fs.readFile(path.join(repository, 'README.md'), 'utf8'), /Selected change/);
+  assert.doesNotMatch(await fs.readFile(path.join(repository, 'other.txt'), 'utf8'), /Other change/);
+  assert.equal((await git.stashes()).length, 1);
+});
+
+test('applies a selected untracked file from a stash without staging it', async () => {
+  await fs.writeFile(path.join(repository, 'new.txt'), 'Untracked stash file\n');
+  await git.createStash({ message: 'Fichier non suivi', includeUntracked: true, files: ['new.txt'] });
+
+  const restored = await git.restoreStash('stash@{0}', 'apply', ['new.txt']);
+  const status = await git.status();
+
+  assert.equal(restored.partial, true);
+  assert.equal(await fs.readFile(path.join(repository, 'new.txt'), 'utf8'), 'Untracked stash file\n');
+  assert.equal(status.files[0].path, 'new.txt');
+  assert.equal(status.files[0].untracked, true);
+  assert.equal(status.files[0].staged, false);
+});
+
+test('refuses to apply a stash while the index contains changes', async () => {
+  await fs.appendFile(path.join(repository, 'README.md'), 'Stash change\n');
+  await git.createStash({ message: 'À appliquer', files: ['README.md'] });
+  await fs.writeFile(path.join(repository, 'indexed.txt'), 'Indexed\n');
+  await git.stage(['indexed.txt']);
+
+  await assert.rejects(() => git.restoreStash('stash@{0}', 'apply'), /fichiers sont indexés/);
+  assert.equal((await git.stashes()).length, 1);
+});
+
+test('returns conflicted files when applying a stash causes conflicts', async () => {
+  await fs.writeFile(path.join(repository, 'README.md'), '# Version stash\n');
+  await git.createStash({ message: 'Version stash', files: ['README.md'] });
+  await fs.writeFile(path.join(repository, 'README.md'), '# Version branche\n');
+  await git.stage(['README.md']);
+  await git.commit('Change same line');
+
+  const restored = await git.restoreStash('stash@{0}', 'apply');
+
+  assert.equal(restored.conflicted, true);
+  assert.deepEqual(restored.conflicts, ['README.md']);
+  assert.equal((await git.status()).files[0].conflicted, true);
 });
 
 test('rejects paths outside the repository', async () => {
@@ -102,4 +572,191 @@ test('opens a repository before its first commit', async () => {
   assert.equal(snapshot.head, 'trunk');
   assert.equal(snapshot.headHash, null);
   assert.deepEqual(snapshot.commits, []);
+});
+
+test('initializes and clones repositories', async () => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'forkline-create-'));
+  try {
+    const initialized = new GitService();
+    await initialized.initialize(path.join(workspace, 'initialized'), 'develop');
+    assert.equal((await initialized.snapshot()).head, 'develop');
+    assert.deepEqual((await initialized.snapshot()).commits, []);
+
+    await git.createBranch('feature/remote-checkout');
+    await fs.writeFile(path.join(repository, 'remote-feature.txt'), 'Remote feature\n');
+    await git.stage(['remote-feature.txt']);
+    await git.commit('Remote feature');
+    await git.switchBranch('main');
+
+    const cloned = new GitService();
+    await cloned.clone(repository, path.join(workspace, 'cloned'));
+    let snapshot = await cloned.snapshot();
+    assert.equal(snapshot.head, 'main');
+    assert.equal(snapshot.commits.some((commit) => commit.subject === 'Initial commit'), true);
+    await cloned.checkoutRemoteBranch('origin/feature/remote-checkout');
+    snapshot = await cloned.snapshot();
+    assert.equal(snapshot.head, 'feature/remote-checkout');
+    assert.equal(snapshot.commits[0].subject, 'Remote feature');
+  } finally {
+    await fs.rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test('adds, inspects, deinitializes and updates a submodule', async () => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'forkline-submodule-'));
+  const sourcePath = path.join(workspace, 'source');
+  try {
+    const source = new GitService();
+    await source.initialize(sourcePath, 'main');
+    await exec('git', ['-C', sourcePath, 'config', 'user.name', 'Submodule Test'], { encoding: 'utf8' });
+    await exec('git', ['-C', sourcePath, 'config', 'user.email', 'submodule@example.test'], { encoding: 'utf8' });
+    await fs.writeFile(path.join(sourcePath, 'module.txt'), 'Module\n');
+    await source.stage(['module.txt']);
+    await source.commit('Submodule initial');
+
+    await git.addSubmodule(sourcePath, 'modules/source');
+    let submodules = await git.submodules();
+    assert.equal(submodules.length, 1);
+    assert.equal(submodules[0].initialized, true);
+    assert.equal(submodules[0].expectedHash, submodules[0].currentHash);
+
+    await fs.appendFile(path.join(repository, 'modules/source/module.txt'), 'Dirty\n');
+    submodules = await git.submodules();
+    assert.equal(submodules[0].dirty, true);
+    await fs.writeFile(path.join(repository, 'modules/source/module.txt'), 'Module\n');
+
+    await git.deinitializeSubmodule('modules/source', true);
+    assert.equal((await git.submodules())[0].initialized, false);
+    await git.updateSubmodule('modules/source');
+    assert.equal((await git.submodules())[0].initialized, true);
+  } finally {
+    await fs.rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test('creates and removes a secondary worktree safely', async () => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'forkline-worktree-'));
+  const worktreePath = path.join(workspace, 'feature-worktree');
+  try {
+    await git.createBranch('feature/worktree');
+    await git.switchBranch('main');
+    await git.addWorktree(worktreePath, 'feature/worktree', false, 'HEAD');
+
+    let worktrees = await git.worktrees();
+    assert.equal(worktrees.length, 2);
+    assert.equal(worktrees.find((entry) => entry.path === worktreePath)?.branch, 'feature/worktree');
+    assert.equal(worktrees.filter((entry) => entry.main).length, 1);
+
+    await git.removeWorktree(worktreePath);
+    worktrees = await git.worktrees();
+    assert.equal(worktrees.length, 1);
+    assert.equal(worktrees[0].main, true);
+  } finally {
+    await fs.rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test('initializes Git Flow and completes a feature', async () => {
+  const config = await git.initializeGitFlow({ master: 'main', develop: 'develop' });
+  assert.equal(config.initialized, true);
+  assert.equal(config.master, 'main');
+  assert.equal(config.develop, 'develop');
+
+  assert.equal(await git.startGitFlow('feature', 'account'), 'feature/account');
+  await fs.writeFile(path.join(repository, 'account.txt'), 'Account\n');
+  await git.stage(['account.txt']);
+  await git.commit('Add account feature');
+  const result = await git.finishGitFlow('feature', 'feature/account');
+
+  assert.equal(result.conflicted, false);
+  const snapshot = await git.snapshot();
+  assert.equal(snapshot.head, 'develop');
+  assert.equal(snapshot.branches.some((branch) => branch.name === 'feature/account'), false);
+  assert.equal(await fs.readFile(path.join(repository, 'account.txt'), 'utf8'), 'Account\n');
+});
+
+test('completes a Git Flow release into production and development', async () => {
+  await git.initializeGitFlow({ master: 'main', develop: 'develop' });
+  await git.startGitFlow('release', '1.2.0');
+  await fs.writeFile(path.join(repository, 'release.txt'), 'Release\n');
+  await git.stage(['release.txt']);
+  await git.commit('Prepare release 1.2.0');
+  const releaseHash = (await git.snapshot()).headHash;
+
+  const result = await git.finishGitFlow('release', 'release/1.2.0');
+
+  assert.equal(result.conflicted, false);
+  assert.equal((await git.snapshot()).head, 'develop');
+  assert.equal((await command(['merge-base', '--is-ancestor', releaseHash, 'main'])).stdout, '');
+  assert.equal((await command(['merge-base', '--is-ancestor', releaseHash, 'develop'])).stdout, '');
+  assert.equal((await command(['rev-parse', '1.2.0^{commit}'])).stdout.trim(), (await command(['rev-parse', 'main'])).stdout.trim());
+  assert.equal((await git.branches()).some((branch) => branch.name === 'release/1.2.0'), false);
+});
+
+test('starts a Git Flow support branch from an explicit historical base', async () => {
+  await git.initializeGitFlow({ master: 'main', develop: 'develop' });
+  const baseHash = (await git.snapshot()).headHash;
+  await git.createTag('1.0.0', baseHash, 'Version 1.0.0');
+  await fs.writeFile(path.join(repository, 'newer.txt'), 'Newer development\n');
+  await git.stage(['newer.txt']);
+  await git.commit('Newer development');
+
+  const branch = await git.startGitFlow('support', '1.x', '1.0.0');
+
+  assert.equal(branch, 'support/1.x');
+  assert.equal(await git.head(), 'support/1.x');
+  assert.equal((await git.snapshot()).headHash, baseHash);
+});
+
+test('exports a commit as an applicable email patch', async () => {
+  const snapshot = await git.snapshot();
+  const patch = await git.createCommitPatch(snapshot.headHash);
+
+  assert.match(patch, /^From [0-9a-f]{40} /m);
+  assert.match(patch, /^Subject: \[PATCH\] /m);
+  assert.match(patch, /^diff --git /m);
+});
+
+test('exports selected commits in dependency order and applies the resulting patch', async () => {
+  const initialHash = (await git.snapshot()).headHash;
+  await fs.writeFile(path.join(repository, 'first-patch.txt'), 'First\n');
+  await git.stage(['first-patch.txt']);
+  await git.commit('First patch commit');
+  const firstHash = (await git.snapshot()).headHash;
+  await fs.writeFile(path.join(repository, 'second-patch.txt'), 'Second\n');
+  await git.stage(['second-patch.txt']);
+  await git.commit('Second patch commit');
+  const secondHash = (await git.snapshot()).headHash;
+
+  const patch = await git.createCommitPatch([secondHash, firstHash]);
+  await git.resetToCommit(initialHash, 'hard');
+  const result = await git.applyPatch(patch);
+
+  assert.equal(result.conflicted, false);
+  assert.deepEqual((await git.commits()).slice(0, 2).map((commit) => commit.subject), ['Second patch commit', 'First patch commit']);
+  assert.equal(await fs.readFile(path.join(repository, 'first-patch.txt'), 'utf8'), 'First\n');
+  assert.equal(await fs.readFile(path.join(repository, 'second-patch.txt'), 'utf8'), 'Second\n');
+});
+
+test('exposes and continues conflicts created while applying a patch', async () => {
+  const initialHash = (await git.snapshot()).headHash;
+  await fs.writeFile(path.join(repository, 'README.md'), '# Patch version\n');
+  await git.stage(['README.md']);
+  await git.commit('Patch README');
+  const patch = await git.createCommitPatch((await git.snapshot()).headHash);
+
+  await git.resetToCommit(initialHash, 'hard');
+  await fs.writeFile(path.join(repository, 'README.md'), '# Local version\n');
+  await git.stage(['README.md']);
+  await git.commit('Local README');
+  const result = await git.applyPatch(patch);
+
+  assert.equal(result.conflicted, true);
+  assert.deepEqual(result.conflicts, ['README.md']);
+  assert.equal((await git.operationState()).type, 'am');
+  await git.resolveConflictContent('README.md', '# Resolved version\n');
+  const continued = await git.continueOperation('am');
+  assert.equal(continued.conflicted, false);
+  assert.equal(await git.operationState(), null);
+  assert.equal(await fs.readFile(path.join(repository, 'README.md'), 'utf8'), '# Resolved version\n');
 });

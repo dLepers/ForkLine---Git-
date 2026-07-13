@@ -7,6 +7,8 @@ class RepositoryWatcher {
     this.publish = publish;
     this.debounceMs = options.debounceMs || 120;
     this.pollMs = options.pollMs || 500;
+    this.onMutationStart = options.onMutationStart || (() => {});
+    this.onExternalChange = options.onExternalChange || (() => {});
     this.watchers = [];
     this.repository = null;
     this.fingerprint = null;
@@ -73,7 +75,10 @@ class RepositoryWatcher {
     if (!this.repository || this.refreshPromise || this.mutationDepth) return null;
     try {
       const fingerprint = await this.readFingerprint();
-      if (fingerprint !== this.fingerprint) return this.refresh();
+      if (fingerprint !== this.fingerprint) {
+        this.onExternalChange();
+        return this.refresh();
+      }
     } catch {
       // A transient lock during rebase/checkout will be retried on the next poll.
     }
@@ -115,6 +120,7 @@ class RepositoryWatcher {
   }
 
   async mutate(callback) {
+    if (this.mutationDepth === 0) this.onMutationStart();
     this.mutationDepth += 1;
     try {
       const output = await callback();

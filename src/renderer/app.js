@@ -3,9 +3,37 @@ const state = {
   view: 'history',
   selectedFile: null,
   selectedCommit: null,
+  selectedStash: null,
+  hiddenStashHashes: loadHiddenStashHashes(),
   busy: false,
   pendingSnapshot: null,
+  historyQuery: '',
+  searchRequest: 0,
+  rebaseBaseHash: null,
+  rebasePlan: [],
+  conflictResolution: null,
+  compareSelection: [],
+  gitProfiles: [],
+  assignedProfileId: null,
+  profileAssignmentType: null,
+  externalEditorCommand: '',
 };
+
+function loadHiddenStashHashes() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem('forkline:hidden-stashes') || '[]'));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveHiddenStashHashes() {
+  localStorage.setItem('forkline:hidden-stashes', JSON.stringify([...state.hiddenStashHashes]));
+}
+
+function visibleGraphCommits() {
+  return (state.snapshot?.commits || []).filter((commit) => !commit.stashRef);
+}
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -17,7 +45,11 @@ function escapeHtml(value = '') {
 }
 
 function unwrap(result) {
-  if (!result?.ok) throw new Error(result?.error?.message || 'Une erreur est survenue.');
+  if (!result?.ok) {
+    const error = new Error(result?.error?.message || 'Une erreur est survenue.');
+    error.details = result?.error?.details || '';
+    throw error;
+  }
   return result.data;
 }
 
@@ -38,7 +70,7 @@ async function action(label, callback) {
     if (result && label) toast(label);
     return result;
   } catch (error) {
-    toast(error.message, true);
+    toast(error.details ? `${error.message}\n${error.details}` : error.message, true);
     return null;
   } finally {
     state.busy = false;
@@ -68,6 +100,7 @@ function relativeTime(dateValue) {
 }
 
 function statusLabel(file) {
+  if (file.conflicted) return 'C';
   const code = file.staged ? file.index : file.workingTree;
   return code === '?' ? 'N' : code || 'M';
 }
@@ -75,14 +108,32 @@ function statusLabel(file) {
 function applySnapshot(snapshot, options = {}) {
   if (snapshot.repositoryRevision && state.snapshot?.repositoryRevision >= snapshot.repositoryRevision) return false;
   state.snapshot = snapshot;
+  state.compareSelection = state.compareSelection.filter((hash) => snapshot.commits.some((commit) => commit.hash === hash)).slice(-2);
   const repoName = basename(snapshot.repository);
   $('#repo-name').textContent = repoName;
+  $('#toolbar-repo-name').textContent = repoName;
+  $('#toolbar-branch-name').textContent = snapshot.head;
   $('#repo-title').textContent = `${repoName}  ·  ${snapshot.head}`;
   $('#commit-count').textContent = snapshot.commits.length;
   $('#change-count').textContent = snapshot.status.files.length || '';
   $('#branch-source').textContent = snapshot.head;
+  const undoButton = $('#undo');
+  undoButton.disabled = !snapshot.undoPlan?.available;
+  undoButton.title = snapshot.undoPlan?.available ? `${snapshot.undoPlan.label}${snapshot.undoHistory?.length > 1 ? ` · ${snapshot.undoHistory.length} actions disponibles par clic droit` : ''}` : snapshot.undoPlan?.reason || 'Aucune action à annuler';
+  const redoButton = $('#redo');
+  redoButton.disabled = !snapshot.redoAvailable;
+  redoButton.title = snapshot.redoAvailable ? `Rétablir la dernière action annulée${snapshot.redoHistory?.length > 1 ? ` · ${snapshot.redoHistory.length} actions disponibles par clic droit` : ''}` : 'Aucune action à rétablir';
+  if ($('#commit-sign')) $('#commit-sign').checked = Boolean(snapshot.commitPreferences?.gpgSign);
   renderBranches();
+  renderStashes();
   renderRemotes();
+  renderTags();
+  renderIdentity();
+  renderSubmodules();
+  renderWorktrees();
+  renderGitFlow();
+  renderLfs();
+  refreshGitProfiles();
   if (!options.preserveHistory) renderCommits();
   renderChanges();
   renderWorktreeInspector();
@@ -93,12 +144,315 @@ function applySnapshot(snapshot, options = {}) {
 
 function renderBranches() {
   const local = state.snapshot.branches.filter((branch) => !branch.remote);
-  const graph = window.ForklineGraph.layoutCommitGraph(state.snapshot.commits, { headHash: state.snapshot.headHash, branches: state.snapshot.branches });
+  const commits = visibleGraphCommits();
+  const graph = window.ForklineGraph.layoutCommitGraph(commits, { headHash: state.snapshot.headHash, branches: state.snapshot.branches });
   $('#branches').innerHTML = local.map((branch) => `
-    <button class="branch-item${branch.current ? ' current' : ''}" style="--branch-color: ${graphColorForHash(graph, branch.hash)}" data-branch="${escapeHtml(branch.name)}" title="${escapeHtml(branchSyncDetails(branch).tooltip)}" aria-label="${escapeHtml(`${branch.name} : ${branchSyncDetails(branch).tooltip}`)}">
+    <button class="branch-item${branch.current ? ' current' : ''}" style="--branch-color: ${graphColorForHash(graph, branch.hash, commits)}" data-branch="${escapeHtml(branch.name)}" title="${escapeHtml(branchSyncDetails(branch).tooltip)}" aria-label="${escapeHtml(`${branch.name} : ${branchSyncDetails(branch).tooltip}`)}">
       ${branch.current ? '<span class="branch-current" aria-label="Branche active">✓</span>' : ''}<span class="branch-symbol"><i></i></span><span>${escapeHtml(branch.name)}</span>${renderBranchSync(branch)}
     </button>`).join('');
   $$('.branch-item').forEach((button) => button.addEventListener('click', () => switchBranch(button.dataset.branch)));
+  $$('.branch-item').forEach((button) => button.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    showBranchContextMenu(button.dataset.branch, event.clientX, event.clientY);
+  }));
+}
+
+const BRANCH_CONTEXT_ACTIONS = [
+  { id: 'checkout', icon: '✓', label: 'Basculer sur cette branche' },
+  { id: 'create', icon: '＋', label: 'Créer une branche ici' },
+  { separator: true },
+  { id: 'merge', icon: '↘', label: 'Fusionner dans la branche active' },
+  { id: 'rebase', icon: '⇢', label: 'Rebaser la branche active sur celle-ci' },
+  { id: 'cherry-pick', icon: '⌁', label: 'Cherry-pick du dernier commit' },
+  { separator: true },
+  { id: 'pull', icon: '↓', label: 'Pull' },
+  { id: 'push', icon: '↑', label: 'Push' },
+  { id: 'upstream', icon: '☁', label: 'Définir la branche distante suivie' },
+  { separator: true },
+  { id: 'rename', icon: '✎', label: 'Renommer la branche' },
+  { id: 'copy', icon: '⧉', label: 'Copier le nom de la branche' },
+  { id: 'delete', icon: '⌫', label: 'Supprimer la branche', danger: true },
+  { id: 'force-delete', icon: '⌫', label: 'Forcer la suppression de la branche', danger: true },
+  { separator: true },
+  { id: 'compare', icon: '≠', label: 'Comparer avec la copie de travail' },
+  { id: 'tag', icon: '◇', label: 'Créer un tag ici' },
+  { id: 'annotated-tag', icon: '◆', label: 'Créer un tag annoté ici' },
+];
+
+function closeBranchContextMenu() {
+  $('#branch-context-menu')?.remove();
+}
+
+function closeCommitContextMenu() {
+  $('#commit-context-menu')?.remove();
+}
+
+function showBranchContextMenu(branchName, clientX, clientY) {
+  closeBranchContextMenu();
+  closeCommitContextMenu();
+  const menu = document.createElement('div');
+  menu.id = 'branch-context-menu';
+  menu.className = 'branch-context-menu';
+  menu.setAttribute('role', 'menu');
+  const flowType = gitFlowBranchType(branchName);
+  const actions = flowType && flowType !== 'support' ? [...BRANCH_CONTEXT_ACTIONS, { separator: true }, { id: 'finish-flow', icon: '✓', label: `Terminer la ${flowType} Git Flow` }] : BRANCH_CONTEXT_ACTIONS;
+  menu.innerHTML = `<div class="branch-context-title"><span>BRANCHE</span><strong>${escapeHtml(branchName)}</strong></div>${actions.map((action) => action.separator
+    ? '<div class="branch-context-separator"></div>'
+    : `<button type="button" role="menuitem" data-branch-action="${action.id}" class="branch-context-action${action.danger ? ' danger' : ''}"><span>${action.icon}</span><span>${escapeHtml(action.label)}</span></button>`).join('')}`;
+  document.body.append(menu);
+  const bounds = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(clientX, window.innerWidth - bounds.width - 8))}px`;
+  menu.style.top = `${Math.max(52, Math.min(clientY, window.innerHeight - bounds.height - 8))}px`;
+  menu.querySelectorAll('[data-branch-action]').forEach((button) => button.addEventListener('click', () => {
+    closeBranchContextMenu();
+    runBranchContextAction(button.dataset.branchAction, branchName);
+  }));
+  menu.querySelector('.branch-context-action')?.focus();
+}
+
+function commitContextActions(commit) {
+  const childCount = state.snapshot.commits.filter((candidate) => candidate.parents.includes(commit.hash)).length;
+  const remoteName = state.snapshot.remotes[0]?.name;
+  return [
+    { id: 'checkout', icon: '✓', label: 'Checkout sur ce commit' },
+    { id: 'create-branch', icon: '＋', label: 'Créer une branche ici' },
+    { id: 'cherry-pick', icon: '⌁', label: 'Cherry-pick du commit' },
+    { id: 'reset', icon: '↶', label: `Réinitialiser ${state.snapshot.head} sur ce commit`, submenu: true },
+    { id: 'revert', icon: '↩', label: 'Revert du commit' },
+    { separator: true },
+    { id: 'interactive-rebase', icon: '⇢', label: `Rebase interactif depuis ce commit`, disabled: commit.hash === state.snapshot.headHash || childCount === 0 },
+    { id: 'amend', icon: '✎', label: 'Modifier le message du commit', disabled: commit.hash !== state.snapshot.headHash },
+    { id: 'drop', icon: '⌫', label: 'Supprimer le commit', danger: true, disabled: true, disabledReason: 'Utilisez le rebase interactif pour supprimer ce commit.' },
+    { id: 'move-up', icon: '↑', label: 'Déplacer le commit vers le haut', disabled: true, disabledReason: 'Utilisez le rebase interactif pour réordonner les commits.' },
+    { separator: true },
+    { id: 'copy-sha', icon: '⧉', label: 'Copier le SHA du commit' },
+    { id: 'copy-link', icon: '↗', label: `Copier le lien distant${remoteName ? ` : ${remoteName}` : ''}`, disabled: true, disabledReason: 'Nécessite une intégration avec l’hébergeur du dépôt.' },
+    { id: 'patch', icon: '▧', label: 'Créer un patch depuis ce commit' },
+    { id: 'apply-patch', icon: '▣', label: 'Appliquer un patch…' },
+    { id: 'apply-patch-clipboard', icon: '▤', label: 'Appliquer le patch du presse-papiers' },
+    { separator: true },
+    { id: 'compare', icon: '≠', label: 'Comparer avec la copie de travail' },
+    { separator: true },
+    { id: 'tag', icon: '◇', label: 'Créer un tag ici' },
+    { id: 'annotated-tag', icon: '◆', label: 'Créer un tag annoté ici' },
+  ];
+}
+
+function showCommitContextMenu(commit, clientX, clientY) {
+  closeBranchContextMenu();
+  closeCommitContextMenu();
+  const menu = document.createElement('div');
+  menu.id = 'commit-context-menu';
+  menu.className = 'branch-context-menu commit-context-menu';
+  menu.setAttribute('role', 'menu');
+  menu.innerHTML = `<div class="branch-context-title"><span>COMMIT ${escapeHtml(commit.shortHash)}</span><strong>${escapeHtml(commit.subject)}</strong></div>${commitContextActions(commit).map((action) => action.separator
+    ? '<div class="branch-context-separator"></div>'
+    : `<button type="button" role="menuitem" data-commit-action="${action.id}" class="branch-context-action${action.danger ? ' danger' : ''}"${action.disabled ? ` disabled title="${escapeHtml(action.disabledReason || 'Action indisponible dans ce contexte.')}"` : ''}><span>${action.icon}</span><span>${escapeHtml(action.label)}</span>${action.submenu ? '<b>›</b>' : ''}</button>`).join('')}`;
+  document.body.append(menu);
+  const bounds = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(clientX, window.innerWidth - bounds.width - 8))}px`;
+  menu.style.top = `${Math.max(52, Math.min(clientY, window.innerHeight - bounds.height - 8))}px`;
+  menu.querySelectorAll('[data-commit-action]:not(:disabled)').forEach((button) => button.addEventListener('click', () => {
+    closeCommitContextMenu();
+    runCommitContextAction(button.dataset.commitAction, commit);
+  }));
+  menu.querySelector('.branch-context-action')?.focus();
+}
+
+async function executeRepositoryAction(label, callback) {
+  const result = await action('', () => callback().then(unwrap));
+  if (!result) return null;
+  const snapshot = result.snapshot || result;
+  if (snapshot?.commits) applySnapshot(snapshot);
+  if (result.conflicted) {
+    toast(`Conflits dans ${result.conflicts.length} fichier${result.conflicts.length > 1 ? 's' : ''}. Résolvez-les dans le travail en cours.`, true);
+    showInspector('#worktree-detail');
+  } else if (label) toast(label);
+  return result;
+}
+
+async function copyText(value, label) {
+  try {
+    await navigator.clipboard.writeText(value);
+    toast(label);
+  } catch {
+    toast('Impossible d’accéder au presse-papiers.', true);
+  }
+}
+
+async function showComparison(revision, title) {
+  const diff = await action('', () => window.forkline.compareWorktree(revision).then(unwrap));
+  if (diff === null) return;
+  state.selectedFile = null;
+  state.selectedStash = null;
+  $('#history-view').classList.remove('hidden');
+  $('#changes-view').classList.add('hidden');
+  $('#history-view').innerHTML = `<div class="diff-preview"><header><div><p class="eyebrow">COMPARAISON AVEC LA COPIE DE TRAVAIL</p><h3>${escapeHtml(title)}</h3></div><button id="close-diff-preview" type="button" class="icon-button" title="Fermer l’aperçu">×</button></header><pre id="left-diff-content"></pre></div>`;
+  $('#left-diff-content').innerHTML = renderDiffMarkup(diff || 'Aucune différence.', 0, false);
+  $('#close-diff-preview').addEventListener('click', closeDiffPreview);
+}
+
+async function showRevisionComparison(fromRevision, toRevision, title) {
+  const diff = await action('', () => window.forkline.compareRevisions(fromRevision, toRevision).then(unwrap));
+  if (diff === null) return;
+  showTextPreview('COMPARAISON DE RÉFÉRENCES', title, renderDiffMarkup(diff || 'Aucune différence.', 0, false), true);
+}
+
+function showTextPreview(kicker, title, content, isMarkup = false) {
+  $('#comparison-bar')?.remove();
+  state.selectedFile = null;
+  state.selectedStash = null;
+  $('#history-view').classList.remove('hidden');
+  $('#changes-view').classList.add('hidden');
+  $('#history-view').innerHTML = `<div class="diff-preview"><header><div><p class="eyebrow">${escapeHtml(kicker)}</p><h3>${escapeHtml(title)}</h3></div><button id="close-diff-preview" type="button" class="icon-button" title="Fermer l’aperçu">×</button></header><pre id="left-diff-content"></pre></div>`;
+  $('#left-diff-content')[isMarkup ? 'innerHTML' : 'textContent'] = content;
+  $('#close-diff-preview').addEventListener('click', closeDiffPreview);
+}
+
+async function createTagAt(revision, annotated) {
+  const name = window.prompt('Nom du tag :');
+  if (!name?.trim()) return;
+  const message = annotated ? window.prompt('Message du tag annoté :', name.trim()) : '';
+  if (annotated && !message?.trim()) return;
+  await executeRepositoryAction(`Tag ${name.trim()} créé`, () => window.forkline.createTag(name.trim(), revision, message || ''));
+}
+
+async function runBranchContextAction(operation, branchName) {
+  const branch = state.snapshot.branches.find((candidate) => !candidate.remote && candidate.name === branchName);
+  if (!branch) return;
+  if (operation === 'checkout') return switchBranch(branchName);
+  if (operation === 'create') {
+    const name = window.prompt(`Créer une branche depuis ${branchName} :`);
+    if (name?.trim()) await executeRepositoryAction(`Branche ${name.trim()} créée`, () => window.forkline.createBranch(name.trim(), branchName));
+    return;
+  }
+  if (operation === 'merge') {
+    if (branch.current) return toast('Cette branche est déjà active.', true);
+    if (window.confirm(`Fusionner ${branchName} dans ${state.snapshot.head} ?`)) await executeRepositoryAction(`Branche ${branchName} fusionnée`, () => window.forkline.mergeBranch(branchName));
+    return;
+  }
+  if (operation === 'rebase') {
+    if (branch.current) return toast('Cette branche est déjà active.', true);
+    if (window.confirm(`Rebaser ${state.snapshot.head} sur ${branchName} ?`)) await executeRepositoryAction(`Branche rebasée sur ${branchName}`, () => window.forkline.rebaseBranch(branchName));
+    return;
+  }
+  if (operation === 'cherry-pick') {
+    if (window.confirm(`Cherry-pick du dernier commit de ${branchName} ?`)) await executeRepositoryAction('Commit appliqué', () => window.forkline.cherryPick(branchName));
+    return;
+  }
+  if (operation === 'pull') {
+    if (!branch.current) return toast('Activez cette branche avant de lancer Pull.', true);
+    await executeRepositoryAction('Pull terminé', () => window.forkline.pull());
+    return;
+  }
+  if (operation === 'push') return executeRepositoryAction(`Branche ${branchName} publiée`, () => window.forkline.pushBranch(branchName));
+  if (operation === 'upstream') {
+    const upstream = window.prompt('Branche distante suivie :', branch.upstream || `origin/${branchName}`);
+    if (upstream?.trim()) await executeRepositoryAction('Branche distante associée', () => window.forkline.setUpstream(branchName, upstream.trim()));
+    return;
+  }
+  if (operation === 'rename') {
+    const name = window.prompt('Nouveau nom de la branche :', branchName);
+    if (name?.trim() && name.trim() !== branchName) await executeRepositoryAction(`Branche renommée en ${name.trim()}`, () => window.forkline.renameBranch(branchName, name.trim()));
+    return;
+  }
+  if (operation === 'copy') return copyText(branchName, 'Nom de branche copié');
+  if (operation === 'delete') {
+    if (window.confirm(`Supprimer la branche ${branchName} ?`)) await executeRepositoryAction(`Branche ${branchName} supprimée`, () => window.forkline.deleteBranch(branchName, false));
+    return;
+  }
+  if (operation === 'force-delete') {
+    if (branch.current) return toast('Impossible de supprimer la branche actuellement active.', true);
+    const confirmation = window.prompt(`Cette action supprime ${branchName}, même si ses commits ne sont pas fusionnés.\nSaisissez exactement le nom de la branche pour confirmer :`);
+    if (confirmation === branchName) await executeRepositoryAction(`Branche ${branchName} supprimée de force`, () => window.forkline.deleteBranch(branchName, true));
+    else if (confirmation !== null) toast('Confirmation incorrecte, aucune branche supprimée.', true);
+    return;
+  }
+  if (operation === 'compare') return branch.current ? showComparison(branchName, branchName) : showRevisionComparison(branchName, state.snapshot.head, `${branchName} → ${state.snapshot.head}`);
+  if (operation === 'tag' || operation === 'annotated-tag') return createTagAt(branch.hash, operation === 'annotated-tag');
+  if (operation === 'finish-flow') {
+    const type = gitFlowBranchType(branchName);
+    if (type && window.confirm(`Terminer la ${type} ${branchName} ? Cette opération fusionnera et supprimera la branche.`)) await executeRepositoryAction(`${branchName} terminée`, () => window.forkline.finishGitFlow(type, branchName));
+  }
+}
+
+async function runCommitContextAction(operation, commit) {
+  if (operation === 'checkout') {
+    if (window.confirm(`Passer en HEAD détaché sur ${commit.shortHash} ?`)) await executeRepositoryAction(`Commit ${commit.shortHash} activé`, () => window.forkline.checkoutCommit(commit.hash));
+    return;
+  }
+  if (operation === 'create-branch') {
+    const name = window.prompt(`Créer une branche depuis ${commit.shortHash} :`);
+    if (name?.trim()) await executeRepositoryAction(`Branche ${name.trim()} créée`, () => window.forkline.createBranch(name.trim(), commit.hash));
+    return;
+  }
+  if (operation === 'cherry-pick') {
+    if (window.confirm(`Cherry-pick du commit ${commit.shortHash} ?`)) await executeRepositoryAction('Commit appliqué', () => window.forkline.cherryPick(commit.hash));
+    return;
+  }
+  if (operation === 'reset') {
+    const mode = window.prompt('Mode de réinitialisation : soft, mixed ou hard', 'mixed')?.trim().toLowerCase();
+    if (!['soft', 'mixed', 'hard'].includes(mode)) return mode ? toast('Mode de réinitialisation invalide.', true) : null;
+    const warning = mode === 'hard' ? '\nToutes les modifications locales seront supprimées.' : '';
+    if (window.confirm(`Réinitialiser ${state.snapshot.head} sur ${commit.shortHash} en mode ${mode} ?${warning}`)) await executeRepositoryAction('Branche réinitialisée', () => window.forkline.resetCommit(commit.hash, mode));
+    return;
+  }
+  if (operation === 'revert') {
+    if (window.confirm(`Créer un commit qui annule ${commit.shortHash} ?`)) await executeRepositoryAction('Commit annulé', () => window.forkline.revertCommit(commit.hash));
+    return;
+  }
+  if (operation === 'amend') {
+    const message = window.prompt('Nouveau message du commit :', commit.subject);
+    if (message?.trim()) await executeRepositoryAction('Message du commit modifié', () => window.forkline.amendHeadMessage(message.trim()));
+    return;
+  }
+  if (operation === 'interactive-rebase') return openInteractiveRebase(commit);
+  if (operation === 'copy-sha') return copyText(commit.hash, 'SHA copié');
+  if (operation === 'patch') {
+    const safeSubject = commit.subject.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'commit';
+    const exportedPath = await action('', () => window.forkline.exportCommitPatch(commit.hash, `${commit.shortHash}-${safeSubject}.patch`).then(unwrap));
+    if (exportedPath) toast(`Patch exporté : ${exportedPath}`);
+    return;
+  }
+  if (operation === 'apply-patch') return executeRepositoryAction('Patch appliqué', () => window.forkline.applyPatch());
+  if (operation === 'apply-patch-clipboard') return applyPatchFromClipboard();
+  if (operation === 'compare') return showComparison(commit.hash, `${commit.shortHash} · ${commit.subject}`);
+  if (operation === 'tag' || operation === 'annotated-tag') return createTagAt(commit.hash, operation === 'annotated-tag');
+}
+
+async function openInteractiveRebase(baseCommit) {
+  const plan = await action('', () => window.forkline.interactiveRebasePlan(baseCommit.hash).then(unwrap));
+  if (plan === null) return;
+  if (!plan.length) return toast('Aucun commit à rebaser après cette base.', true);
+  state.rebaseBaseHash = baseCommit.hash;
+  state.rebasePlan = plan;
+  renderRebasePlan();
+  $('#rebase-dialog').showModal();
+}
+
+function renderRebasePlan() {
+  $('#rebase-plan').innerHTML = state.rebasePlan.map((commit, index) => `<div class="rebase-plan-row" data-rebase-index="${index}"><span class="rebase-order"><button type="button" data-rebase-move="up"${index === 0 ? ' disabled' : ''}>↑</button><button type="button" data-rebase-move="down"${index === state.rebasePlan.length - 1 ? ' disabled' : ''}>↓</button></span><select data-rebase-action><option value="pick"${commit.action === 'pick' ? ' selected' : ''}>Conserver</option><option value="reword"${commit.action === 'reword' ? ' selected' : ''}>Modifier le message</option><option value="squash"${commit.action === 'squash' ? ' selected' : ''}>Fusionner et garder le message</option><option value="fixup"${commit.action === 'fixup' ? ' selected' : ''}>Fusionner sans le message</option><option value="drop"${commit.action === 'drop' ? ' selected' : ''}>Supprimer</option></select><span class="rebase-commit"><strong>${escapeHtml(commit.message || commit.subject)}</strong><small>${escapeHtml(commit.shortHash)} · ${escapeHtml(commit.author)}</small></span></div>`).join('');
+  $$('[data-rebase-action]').forEach((select) => select.addEventListener('change', () => {
+    const index = Number(select.closest('[data-rebase-index]').dataset.rebaseIndex);
+    if (select.value === 'reword') {
+      const message = window.prompt('Nouveau message du commit :', state.rebasePlan[index].message || state.rebasePlan[index].subject);
+      if (!message?.trim()) {
+        state.rebasePlan[index].action = 'pick';
+        renderRebasePlan();
+        return;
+      }
+      state.rebasePlan[index].message = message.trim();
+    }
+    state.rebasePlan[index].action = select.value;
+    renderRebasePlan();
+  }));
+  $$('[data-rebase-move]').forEach((button) => button.addEventListener('click', () => {
+    const index = Number(button.closest('[data-rebase-index]').dataset.rebaseIndex);
+    const target = button.dataset.rebaseMove === 'up' ? index - 1 : index + 1;
+    [state.rebasePlan[index], state.rebasePlan[target]] = [state.rebasePlan[target], state.rebasePlan[index]];
+    renderRebasePlan();
+  }));
 }
 
 function branchSyncDetails(branch) {
@@ -119,12 +473,280 @@ function renderRemotes() {
     ? state.snapshot.remotes.map((remote) => {
       const prefix = `${remote.name}/`;
       const branches = remoteBranches.filter((branch) => branch.name.startsWith(prefix));
-      return `<div class="remote-group" title="${escapeHtml(remote.fetchUrl || '')}">
-        <div class="remote-item"><span class="remote-glyph">⌁</span><span>${escapeHtml(remote.name)}</span><b>${branches.length}</b></div>
-        ${branches.map((branch) => `<div class="remote-branch"><span class="branch-symbol"><i></i></span><span>${escapeHtml(branch.name.slice(prefix.length))}</span></div>`).join('')}
+      return `<div class="remote-group" data-remote="${escapeHtml(remote.name)}" title="${escapeHtml(remote.fetchUrl || '')}">
+        <button type="button" class="remote-item" data-remote="${escapeHtml(remote.name)}"><span class="remote-glyph">⌁</span><span>${escapeHtml(remote.name)}</span><b>${branches.length}</b></button>
+        ${branches.map((branch) => `<button type="button" class="remote-branch" data-remote-branch="${escapeHtml(branch.name)}"><span class="branch-symbol"><i></i></span><span>${escapeHtml(branch.name.slice(prefix.length))}</span></button>`).join('')}
       </div>`;
     }).join('')
     : '<div class="remote-item"><span class="remote-glyph">—</span><span>Aucun distant</span></div>';
+  $$('.remote-item[data-remote]').forEach((item) => item.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    showRemoteContextMenu(item.dataset.remote, event.clientX, event.clientY);
+  }));
+  $$('[data-remote-branch]').forEach((item) => item.addEventListener('click', async () => {
+    const remoteBranch = item.dataset.remoteBranch;
+    const localName = remoteBranch.split('/').slice(1).join('/');
+    const local = state.snapshot.branches.find((branch) => !branch.remote && branch.name === localName);
+    if (local) await switchBranch(localName);
+    else await executeRepositoryAction(`Branche ${localName} créée et suivie`, () => window.forkline.checkoutRemoteBranch(remoteBranch, localName));
+  }));
+}
+
+function renderTags() {
+  const tags = state.snapshot.tags || [];
+  $('#tags').innerHTML = tags.length ? tags.map((tag) => `<button type="button" class="tag-item" data-tag="${escapeHtml(tag.name)}" data-hash="${escapeHtml(tag.hash)}" title="${escapeHtml(tag.subject || tag.name)}"><span>◇</span><span>${escapeHtml(tag.name)}</span>${tag.annotated ? '<b>annoté</b>' : ''}</button>`).join('') : '<div class="stash-empty">Aucun tag</div>';
+  $$('.tag-item').forEach((item) => {
+    item.addEventListener('click', () => selectCommit(item.dataset.hash));
+    item.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      showTagContextMenu(item.dataset.tag, item.dataset.hash, event.clientX, event.clientY);
+    });
+  });
+}
+
+function renderIdentity() {
+  const identity = state.snapshot.identity || {};
+  $('#git-identity-name').textContent = identity.name || 'Non configurée';
+  $('#git-identity-email').textContent = identity.email ? `${identity.email} · ${identity.scope === 'local' ? 'dépôt' : 'global'}` : 'Définir un nom et un e-mail';
+}
+
+async function refreshGitProfiles() {
+  const result = await window.forkline.gitProfiles().then(unwrap).catch(() => null);
+  if (!result) return;
+  state.gitProfiles = result.profiles;
+  state.assignedProfileId = result.assignedProfileId;
+  state.profileAssignmentType = result.assignmentType;
+  state.externalEditorCommand = result.externalEditorCommand || '';
+  if ($('#identity-dialog').open) renderGitProfileOptions();
+}
+
+function renderGitProfileOptions() {
+  $('#identity-profile').innerHTML = `<option value="">Configuration actuelle</option>${state.gitProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}"${profile.id === state.assignedProfileId ? ' selected' : ''}>${escapeHtml(profile.label)}</option>`).join('')}`;
+  $('#delete-identity-profile').disabled = !$('#identity-profile').value;
+  $('#identity-profile-match').textContent = state.profileAssignmentType === 'rule'
+    ? 'Ce profil a été sélectionné automatiquement par une règle. Une affectation explicite au dépôt reste prioritaire.'
+    : state.profileAssignmentType === 'exact' ? 'Ce profil est affecté explicitement à ce dépôt.' : 'Les caractères * et ? sont acceptés. Une affectation explicite au dépôt reste prioritaire.';
+}
+
+function fillIdentityFromProfile(profile) {
+  if (!profile) return;
+  $('#identity-name').value = profile.name;
+  $('#identity-email').value = profile.email;
+  $('#identity-gpg-sign').checked = profile.gpgSign;
+  $('#identity-signing-key').value = profile.signingKey || '';
+  $('#identity-path-pattern').value = profile.pathPattern || '';
+  $('#identity-remote-pattern').value = profile.remotePattern || '';
+}
+
+function renderSubmodules() {
+  const submodules = state.snapshot.submodules || [];
+  $('#submodules').innerHTML = submodules.length ? submodules.map((submodule) => `<button type="button" class="resource-item" data-submodule="${escapeHtml(submodule.path)}" title="${escapeHtml(submodule.url)}"><span class="resource-glyph">▣</span><span><strong>${escapeHtml(submodule.path)}</strong><small>${submodule.initialized ? `${submodule.currentHash.slice(0, 7)}${submodule.dirty ? ' · modifié' : submodule.outOfSync ? ' · désynchronisé' : ''}` : 'Non initialisé'}</small></span><i class="resource-state ${submodule.initialized && !submodule.dirty && !submodule.outOfSync ? 'ready' : ''}"></i></button>`).join('') : '<div class="stash-empty">Aucun sous-module</div>';
+  $$('[data-submodule]').forEach((item) => {
+    item.addEventListener('click', () => openSubmodule(item.dataset.submodule));
+    item.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      showSubmoduleContextMenu(item.dataset.submodule, event.clientX, event.clientY);
+    });
+  });
+}
+
+function renderWorktrees() {
+  const worktrees = state.snapshot.worktrees || [];
+  $('#worktrees').innerHTML = worktrees.map((worktree) => `<button type="button" class="resource-item${worktree.main ? ' current' : ''}" data-worktree="${escapeHtml(worktree.path)}" title="${escapeHtml(worktree.path)}"><span class="resource-glyph">⌘</span><span><strong>${escapeHtml(worktree.branch || 'HEAD détaché')}</strong><small>${escapeHtml(worktree.main ? 'Worktree actuel' : worktree.path)}</small></span>${worktree.main ? '<b>actuel</b>' : ''}</button>`).join('');
+  $$('[data-worktree]').forEach((item) => {
+    item.addEventListener('click', () => openWorktree(item.dataset.worktree));
+    item.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      showWorktreeContextMenu(item.dataset.worktree, event.clientX, event.clientY);
+    });
+  });
+}
+
+function gitFlowBranchType(branchName) {
+  const flow = state.snapshot.gitFlow;
+  if (!flow?.initialized) return null;
+  return ['feature', 'release', 'hotfix', 'support'].find((type) => branchName.startsWith(flow.prefixes[type])) || null;
+}
+
+function renderGitFlow() {
+  const flow = state.snapshot.gitFlow;
+  if (!flow?.initialized) {
+    $('#git-flow').innerHTML = '<button type="button" class="flow-initialize" data-flow-action="initialize">Initialiser Git Flow</button>';
+  } else {
+    $('#git-flow').innerHTML = `<div class="flow-bases"><span>${escapeHtml(flow.master)}</span><span>${escapeHtml(flow.develop)}</span></div><button type="button" data-flow-action="feature">＋ Feature</button><button type="button" data-flow-action="release">＋ Release</button><button type="button" data-flow-action="hotfix">＋ Hotfix</button><button type="button" data-flow-action="support">＋ Support</button>`;
+  }
+  $$('[data-flow-action]').forEach((button) => button.addEventListener('click', () => runGitFlowAction(button.dataset.flowAction)));
+}
+
+function renderLfs() {
+  const lfs = state.snapshot.lfs || { available: false, patterns: [] };
+  $('#new-lfs-pattern').disabled = !lfs.available;
+  $('#new-lfs-pattern').title = lfs.available ? 'Suivre un motif avec Git LFS' : 'Git LFS n’est pas installé';
+  $('#git-lfs').innerHTML = lfs.available ? `${lfs.patterns.map((pattern) => `<button type="button" class="resource-item" data-lfs-pattern="${escapeHtml(pattern)}"><span class="resource-glyph">◫</span><span><strong>${escapeHtml(pattern)}</strong><small>Suivi par Git LFS</small></span></button>`).join('') || '<div class="stash-empty">Aucun motif suivi</div>'}<button type="button" class="lfs-sync" data-lfs-sync="pull">Pull LFS</button><button type="button" class="lfs-sync" data-lfs-sync="push">Push LFS</button>` : '<div class="capability-missing">Git LFS n’est pas installé.</div>';
+  $$('[data-lfs-pattern]').forEach((item) => item.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    showSimpleContextMenu(item.dataset.lfsPattern, [{ id: 'untrack', icon: '⌫', label: 'Ne plus suivre ce motif', danger: true, run: async () => { if (window.confirm(`Ne plus suivre ${item.dataset.lfsPattern} avec Git LFS ?`)) await executeRepositoryAction('Motif LFS retiré', () => window.forkline.untrackLfs(item.dataset.lfsPattern)); } }], event.clientX, event.clientY);
+  }));
+  $$('[data-lfs-sync]').forEach((button) => button.addEventListener('click', () => executeRepositoryAction(`${button.dataset.lfsSync === 'pull' ? 'Pull' : 'Push'} LFS terminé`, () => window.forkline[button.dataset.lfsSync === 'pull' ? 'pullLfs' : 'pushLfs']())));
+}
+
+async function runGitFlowAction(type) {
+  if (type === 'initialize') {
+    const localNames = state.snapshot.branches.filter((branch) => !branch.remote).map((branch) => branch.name);
+    const defaultMaster = localNames.includes('main') ? 'main' : localNames.includes('master') ? 'master' : state.snapshot.head;
+    const master = window.prompt('Branche de production :', defaultMaster);
+    if (!master?.trim()) return;
+    const develop = window.prompt('Branche de développement :', 'develop');
+    if (!develop?.trim()) return;
+    await executeRepositoryAction('Git Flow initialisé', () => window.forkline.initializeGitFlow({ master: master.trim(), develop: develop.trim() }));
+    return;
+  }
+  const name = window.prompt(`Nom de la ${type} :`);
+  if (!name?.trim()) return;
+  const startPoint = type === 'support' ? window.prompt('Tag, branche ou commit de départ du support :', state.snapshot.gitFlow.master) : '';
+  if (type === 'support' && !startPoint?.trim()) return;
+  await executeRepositoryAction(`${type} démarrée`, () => window.forkline.startGitFlow(type, name.trim(), startPoint?.trim() || ''));
+}
+
+async function openSubmodule(submodulePath) {
+  const submodule = state.snapshot.submodules.find((entry) => entry.path === submodulePath);
+  if (!submodule.initialized) return executeRepositoryAction('Sous-module initialisé', () => window.forkline.updateSubmodule(submodulePath));
+  if (window.confirm(`Ouvrir le sous-module ${submodulePath} à la place du dépôt actuel ?`)) {
+    const snapshot = await action('', () => window.forkline.openSubmodule(submodulePath).then(unwrap));
+    if (snapshot) applySnapshot(snapshot);
+  }
+}
+
+function showSubmoduleContextMenu(submodulePath, x, y) {
+  const submodule = state.snapshot.submodules.find((entry) => entry.path === submodulePath);
+  showSimpleContextMenu(submodulePath, [
+    { id: 'open', icon: '↗', label: submodule.initialized ? 'Ouvrir le sous-module' : 'Initialiser le sous-module', run: () => openSubmodule(submodulePath) },
+    { id: 'update', icon: '↓', label: 'Initialiser et mettre à jour récursivement', run: () => executeRepositoryAction('Sous-module mis à jour', () => window.forkline.updateSubmodule(submodulePath)) },
+    { id: 'sync', icon: '↻', label: 'Synchroniser la configuration distante', run: () => executeRepositoryAction('Sous-module synchronisé', () => window.forkline.syncSubmodule(submodulePath)) },
+    { id: 'deinit', icon: '⌫', label: 'Désinitialiser', danger: true, run: async () => { if (window.confirm(`Désinitialiser ${submodulePath} ? Les fichiers de travail du sous-module seront retirés.`)) await executeRepositoryAction('Sous-module désinitialisé', () => window.forkline.deinitializeSubmodule(submodulePath, false)); } },
+  ], x, y);
+}
+
+async function openWorktree(worktreePath) {
+  const worktree = state.snapshot.worktrees.find((entry) => entry.path === worktreePath);
+  if (!worktree || worktree.main) return;
+  if (window.confirm(`Ouvrir le worktree ${worktree.branch || worktree.path} à la place du dépôt actuel ?`)) {
+    const snapshot = await action('', () => window.forkline.openWorktree(worktreePath).then(unwrap));
+    if (snapshot) applySnapshot(snapshot);
+  }
+}
+
+function showWorktreeContextMenu(worktreePath, x, y) {
+  const worktree = state.snapshot.worktrees.find((entry) => entry.path === worktreePath);
+  const actions = [
+    { id: 'prune', icon: '↻', label: 'Nettoyer les worktrees obsolètes', run: () => executeRepositoryAction('Worktrees obsolètes nettoyés', () => window.forkline.pruneWorktrees()) },
+  ];
+  if (!worktree.main) actions.unshift(
+    { id: 'open', icon: '↗', label: 'Ouvrir ce worktree', run: () => openWorktree(worktreePath) },
+    { id: 'remove', icon: '⌫', label: 'Supprimer ce worktree', danger: true, run: async () => { if (window.confirm(`Supprimer le worktree ${worktreePath} ?`)) await executeRepositoryAction('Worktree supprimé', () => window.forkline.removeWorktree(worktreePath, false)); } },
+  );
+  showSimpleContextMenu(worktree.branch || worktree.path, actions, x, y);
+}
+
+function showSimpleContextMenu(title, actions, clientX, clientY) {
+  closeBranchContextMenu();
+  closeCommitContextMenu();
+  const menu = document.createElement('div');
+  menu.id = 'branch-context-menu';
+  menu.className = 'branch-context-menu';
+  menu.innerHTML = `<div class="branch-context-title"><span>ACTIONS</span><strong>${escapeHtml(title)}</strong></div>${actions.map((entry) => `<button type="button" class="branch-context-action${entry.danger ? ' danger' : ''}" data-simple-action="${entry.id}"><span>${entry.icon}</span><span>${escapeHtml(entry.label)}</span></button>`).join('')}`;
+  document.body.append(menu);
+  const bounds = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(clientX, window.innerWidth - bounds.width - 8))}px`;
+  menu.style.top = `${Math.max(52, Math.min(clientY, window.innerHeight - bounds.height - 8))}px`;
+  actions.forEach((entry) => menu.querySelector(`[data-simple-action="${entry.id}"]`).addEventListener('click', () => {
+    closeBranchContextMenu();
+    entry.run();
+  }));
+}
+
+function showRemoteContextMenu(name, x, y) {
+  const remote = state.snapshot.remotes.find((candidate) => candidate.name === name);
+  showSimpleContextMenu(name, [
+    { id: 'fetch', icon: '↓', label: 'Récupérer', run: () => executeRepositoryAction(`Dépôt ${name} récupéré`, () => window.forkline.fetchRemote(name, false)) },
+    { id: 'prune', icon: '⌁', label: 'Récupérer et nettoyer les références', run: () => executeRepositoryAction(`Références ${name} nettoyées`, () => window.forkline.fetchRemote(name, true)) },
+    { id: 'copy', icon: '⧉', label: 'Copier l’adresse', run: () => copyText(remote.fetchUrl || '', 'Adresse copiée') },
+    { id: 'rename', icon: '✎', label: 'Renommer', run: async () => { const value = window.prompt('Nouveau nom du dépôt distant :', name); if (value?.trim() && value.trim() !== name) await executeRepositoryAction('Dépôt distant renommé', () => window.forkline.renameRemote(name, value.trim())); } },
+    { id: 'remove', icon: '⌫', label: 'Supprimer', danger: true, run: async () => { if (window.confirm(`Supprimer le dépôt distant ${name} ?`)) await executeRepositoryAction('Dépôt distant supprimé', () => window.forkline.removeRemote(name)); } },
+  ], x, y);
+}
+
+function showTagContextMenu(name, hash, x, y) {
+  showSimpleContextMenu(name, [
+    { id: 'checkout', icon: '✓', label: 'Checkout sur ce tag', run: () => executeRepositoryAction(`Tag ${name} activé`, () => window.forkline.checkoutCommit(hash)) },
+    { id: 'push', icon: '↑', label: 'Publier le tag', run: () => executeRepositoryAction(`Tag ${name} publié`, () => window.forkline.pushTag(name)) },
+    { id: 'delete-remote', icon: '☁', label: 'Supprimer le tag distant', danger: true, run: async () => { if (window.confirm(`Supprimer le tag ${name} du dépôt distant ?`)) await executeRepositoryAction(`Tag distant ${name} supprimé`, () => window.forkline.deleteRemoteTag(name)); } },
+    { id: 'copy', icon: '⧉', label: 'Copier le nom', run: () => copyText(name, 'Nom du tag copié') },
+    { id: 'delete', icon: '⌫', label: 'Supprimer le tag local', danger: true, run: async () => { if (window.confirm(`Supprimer le tag ${name} ?`)) await executeRepositoryAction(`Tag ${name} supprimé`, () => window.forkline.deleteTag(name)); } },
+  ], x, y);
+}
+
+function renderStashes() {
+  const stashes = state.snapshot.stashes || [];
+  const visibleStashes = stashes.filter((stash) => !state.hiddenStashHashes.has(stash.hash));
+  const hiddenCount = stashes.length - visibleStashes.length;
+  const popButton = $('#toolbar-pop-stash');
+  if (popButton) popButton.disabled = stashes.length === 0;
+  $('#stashes').innerHTML = `${visibleStashes.length ? visibleStashes.map((stash) => `
+    <button class="stash-item${state.selectedStash === stash.ref ? ' selected' : ''}" type="button" data-stash="${escapeHtml(stash.ref)}" title="${escapeHtml(stash.subject)}">
+      <span class="stash-glyph">▣</span><span class="stash-item-main"><strong>${escapeHtml(stash.message)}</strong><small>${escapeHtml(stash.branch || 'HEAD détaché')} · ${stash.fileCount} fichier${stash.fileCount > 1 ? 's' : ''}</small></span>
+    </button>`).join('') : '<div class="stash-empty">Aucun stash visible</div>'}${hiddenCount ? `<button id="show-hidden-stashes" class="show-hidden-stashes" type="button">Afficher ${hiddenCount} stash${hiddenCount > 1 ? 's' : ''} masqué${hiddenCount > 1 ? 's' : ''}</button>` : ''}`;
+  $$('.stash-item').forEach((button) => button.addEventListener('click', () => selectStash(button.dataset.stash)));
+  $$('.stash-item').forEach((button) => button.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    showStashContextMenu(button.dataset.stash, event.clientX, event.clientY);
+  }));
+  $('#show-hidden-stashes')?.addEventListener('click', () => {
+    state.hiddenStashHashes.clear();
+    saveHiddenStashHashes();
+    renderBranches();
+    renderStashes();
+    renderCommits();
+  });
+}
+
+function closeStashContextMenu() {
+  $('#stash-context-menu')?.remove();
+}
+
+function showStashContextMenu(ref, clientX, clientY) {
+  closeBranchContextMenu();
+  closeCommitContextMenu();
+  closeStashContextMenu();
+  const stash = (state.snapshot.stashes || []).find((entry) => entry.ref === ref);
+  if (!stash) return;
+  const menu = document.createElement('div');
+  menu.id = 'stash-context-menu';
+  menu.className = 'branch-context-menu';
+  menu.setAttribute('role', 'menu');
+  menu.innerHTML = `<div class="branch-context-title"><span>STASH</span><strong>${escapeHtml(stash.message)}</strong></div>
+    <button type="button" role="menuitem" class="branch-context-action" data-stash-menu-action="apply"><span>↓</span><span>Appliquer le stash</span></button>
+    <button type="button" role="menuitem" class="branch-context-action" data-stash-menu-action="pop"><span>↧</span><span>Appliquer et supprimer</span></button>
+    <div class="branch-context-separator"></div>
+    <button type="button" role="menuitem" class="branch-context-action" data-stash-menu-action="hide"><span>◌</span><span>Masquer du graphe</span></button>
+    <button type="button" role="menuitem" class="branch-context-action danger" data-stash-menu-action="drop"><span>⌫</span><span>Supprimer le stash</span></button>`;
+  document.body.append(menu);
+  const bounds = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(clientX, window.innerWidth - bounds.width - 8))}px`;
+  menu.style.top = `${Math.max(52, Math.min(clientY, window.innerHeight - bounds.height - 8))}px`;
+  $$('[data-stash-menu-action]').forEach((button) => button.addEventListener('click', () => {
+    closeStashContextMenu();
+    if (button.dataset.stashMenuAction === 'hide') {
+      state.hiddenStashHashes.add(stash.hash);
+      saveHiddenStashHashes();
+      if (state.selectedStash === ref) closeDiffPreview();
+      renderBranches();
+      renderStashes();
+      renderCommits();
+    } else runStashAction(button.dataset.stashMenuAction, ref);
+  }));
+  menu.querySelector('.branch-context-action')?.focus();
 }
 
 const GRAPH_COLORS = ['#3c91d4', '#57b88a', '#8a77cf', '#39a6a3', '#5f7fe8', '#74b96f', '#9b6fd0', '#3aa7c4'];
@@ -133,8 +755,8 @@ function graphColor(lane) {
   return GRAPH_COLORS[lane % GRAPH_COLORS.length];
 }
 
-function graphColorForHash(graph, hash) {
-  const index = state.snapshot.commits.findIndex((commit) => commit.hash === hash);
+function graphColorForHash(graph, hash, commits = state.snapshot.commits) {
+  const index = commits.findIndex((commit) => commit.hash === hash);
   return index >= 0 ? graphColor(graph.rows[index].laneColor) : '#6c7169';
 }
 
@@ -187,11 +809,12 @@ function graphIconMarkup(type, x, y, color) {
   if (type === 'remote') return `<path class="sync-icon" d="M ${x + 1} ${y + 8} H ${x + 10} C ${x + 12} ${y + 8}, ${x + 12} ${y + 5}, ${x + 10} ${y + 4} C ${x + 9} ${y + 1}, ${x + 5} ${y + 1}, ${x + 4} ${y + 4} C ${x + 1} ${y + 3}, ${x} ${y + 7}, ${x + 1} ${y + 8}" fill="none" stroke="${color}" stroke-width="1.2"/>`;
   if (type === 'warning') return `<g class="sync-icon" fill="${color}"><path d="M ${x + 6} ${y} L ${x + 12} ${y + 10} H ${x} Z"/><text x="${x + 5}" y="${y + 8}" fill="var(--paper)" font-size="7">!</text></g>`;
   if (type === 'tag') return `<path class="sync-icon" d="M ${x + 1} ${y + 2} H ${x + 7} L ${x + 11} ${y + 6} L ${x + 7} ${y + 10} H ${x + 1} Z" fill="none" stroke="${color}" stroke-width="1.2"/>`;
+  if (type === 'stash') return `<g class="sync-icon" fill="none" stroke="${color}" stroke-width="1.2"><rect x="${x + 1}" y="${y + 2}" width="10" height="8" rx="1.5"/><path d="M ${x + 3} ${y + 2} V ${y} H ${x + 9} V ${y + 2} M ${x + 4} ${y + 6} H ${x + 8}"/></g>`;
   const symbol = type === 'ahead' ? '↑' : type === 'behind' ? '↓' : '↕';
   return `<text class="sync-icon" x="${x + 1}" y="${y + 10}" fill="${color}" font-size="11" font-weight="800">${symbol}</text>`;
 }
 
-function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTreeNode) {
+function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTreeNode, hasStashAbove = false) {
   const spacing = 16;
   const centerY = 22;
   const laneWidth = graphLaneWidth(laneCount);
@@ -199,27 +822,32 @@ function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTre
   const laneOffset = Math.max(0, width - laneWidth);
   const x = (lane) => laneOffset + 6 + lane * spacing;
   const paths = [];
+  const isStash = Boolean(commit.stashRole);
+
+  if (hasStashAbove) {
+    paths.push(`<path d="M ${x(row.lane)} 0 L ${x(row.lane)} ${centerY}" stroke="${graphColor(row.laneColor)}"/>`);
+  }
 
   row.before.forEach((value, lane) => {
     if (value && !(row.startsHere && lane === row.lane)) {
       const workingStroke = workingTreeNode && lane === workingTreeNode.lane && rowIndex <= workingTreeNode.commitIndex;
-      paths.push(`<path d="M ${x(lane)} 0 L ${x(lane)} ${centerY}" stroke="${workingStroke ? '#24b4c2' : graphColor(row.beforeColors[lane])}"${workingStroke ? ' stroke-dasharray="2 5"' : ''}/> `);
+      paths.push(`<path${isStash && lane === row.lane ? ' class="stash-edge"' : ''} d="M ${x(lane)} 0 L ${x(lane)} ${centerY}" stroke="${workingStroke ? '#24b4c2' : graphColor(row.beforeColors[lane])}"${workingStroke ? ' stroke-dasharray="2 5"' : ''}/> `);
     }
   });
   row.after.forEach((value, lane) => {
     const continuesThroughRow = row.before[lane] || lane === row.lane;
     if (value && continuesThroughRow) {
       const workingStroke = workingTreeNode && lane === workingTreeNode.lane && rowIndex < workingTreeNode.commitIndex;
-      paths.push(`<path d="M ${x(lane)} ${centerY} L ${x(lane)} 44" stroke="${workingStroke ? '#24b4c2' : graphColor(row.afterColors[lane])}"${workingStroke ? ' stroke-dasharray="2 5"' : ''}/> `);
+      paths.push(`<path${isStash && lane === row.lane ? ' class="stash-edge"' : ''} d="M ${x(lane)} ${centerY} L ${x(lane)} 44" stroke="${workingStroke ? '#24b4c2' : graphColor(row.afterColors[lane])}"${workingStroke ? ' stroke-dasharray="2 5"' : ''}/> `);
     }
   });
   row.connections.forEach(({ from, to, toColor }) => {
     if (from === to) return;
-    paths.push(`<path class="graph-curve" d="M ${x(from)} ${centerY} C ${x(from)} 34, ${x(to)} 32, ${x(to)} 44" stroke="${graphColor(toColor)}"/>`);
+    paths.push(`<path class="graph-curve${isStash && from === row.lane ? ' stash-edge' : ''}" d="M ${x(from)} ${centerY} C ${x(from)} 34, ${x(to)} 32, ${x(to)} 44" stroke="${graphColor(toColor)}"/>`);
   });
-  row.transitions?.forEach(({ from, to }) => {
+  row.transitions?.forEach(({ from, to }, transitionIndex) => {
     if (from === to) return;
-    paths.push(`<path class="graph-transition" d="M ${x(from)} 44 C ${x(from)} 44, ${x(to)} 44, ${x(to)} 44" stroke="${graphColor(row.afterColors[from])}"/>`);
+    paths.push(`<path class="graph-transition" d="M ${x(from)} 44 C ${x(from)} 44, ${x(to)} 44, ${x(to)} 44" stroke="${graphColor(row.transitionColors?.[transitionIndex])}"/>`);
   });
 
   if (window.forkline.debugGraphLayout) {
@@ -229,11 +857,33 @@ function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTre
   const color = graphColor(row.laneColor);
   const labels = graphLabelDetails(commit, color);
   const labelGroup = graphLabelGroupMarkup(labels, x(row.lane), centerY, color);
+  const nodeColor = color;
+  const nodeMarkup = isStash
+    ? `<rect class="stash-node-halo" x="${x(row.lane) - 7}" y="${centerY - 7}" width="14" height="14" stroke="${nodeColor}"/><path class="stash-node-mark" d="M ${x(row.lane) - 4} ${centerY - 3} H ${x(row.lane) + 4} V ${centerY + 4} H ${x(row.lane) - 4} Z M ${x(row.lane) - 2} ${centerY} H ${x(row.lane) + 2}" stroke="${nodeColor}"/>`
+    : `<circle class="commit-node-halo" cx="${x(row.lane)}" cy="${centerY}" r="6.5"/><circle class="commit-node" cx="${x(row.lane)}" cy="${centerY}" r="4" fill="${color}" stroke="${color}"/>`;
   return `<svg class="commit-graph" width="${width}" height="44" viewBox="0 0 ${width} 44" aria-hidden="true">
     <g fill="none" stroke-width="2.5" stroke-linecap="round">${paths.join('')}</g>
     ${labelGroup}
-    <circle class="commit-node-halo" cx="${x(row.lane)}" cy="${centerY}" r="6.5"/>
-    <circle class="commit-node" cx="${x(row.lane)}" cy="${centerY}" r="4" fill="${color}" stroke="${color}"/>
+    ${nodeMarkup}
+  </svg>`;
+}
+
+function renderStashGraphRow(stash, baseLane, stashLane, laneColor, laneCount, graphWidth) {
+  const spacing = 16;
+  const laneWidth = graphLaneWidth(laneCount);
+  const width = graphWidth || laneWidth;
+  const laneOffset = Math.max(0, width - laneWidth);
+  const baseX = laneOffset + 6 + baseLane * spacing;
+  const centerX = laneOffset + 6 + stashLane * spacing;
+  const centerY = 22;
+  const color = graphColor(laneColor);
+  const connection = stashLane === baseLane
+    ? `<path class="stash-continuation" d="M ${baseX} 0 V 44" stroke="${color}"/>`
+    : `<path class="stash-main-continuation" d="M ${baseX} 0 V 44" stroke="${color}"/><path class="stash-side-connection" d="M ${centerX} ${centerY} C ${centerX} 34, ${baseX} 32, ${baseX} 44" stroke="${color}"/>`;
+  return `<svg class="commit-graph stash-graph" width="${width}" height="44" viewBox="0 0 ${width} 44" aria-hidden="true">
+    ${connection}
+    <rect class="stash-node-halo" x="${centerX - 7}" y="${centerY - 7}" width="14" height="14" stroke="${color}"/>
+    <path class="stash-node-mark" d="M ${centerX - 4} ${centerY - 3} H ${centerX + 4} V ${centerY + 4} H ${centerX - 4} Z M ${centerX - 2} ${centerY} H ${centerX + 2}" stroke="${color}"/>
   </svg>`;
 }
 
@@ -288,8 +938,9 @@ function graphLabelGroupMarkup(labels, nodeX, nodeY, color) {
     </g>`;
   }).join('');
   const connectorY = nodeY;
+  const connectorColor = labels[0]?.color || color;
   return `<g class="branch-label-group" font-family="${escapeHtml('Nimbus Sans, Liberation Sans, sans-serif')}" font-size="10" font-weight="700">
-    <path class="branch-label-link" d="M ${labelStart + metrics.width} ${connectorY} H ${nodeX}" stroke="${color}"/>
+    <path class="branch-label-link" d="M ${labelStart + metrics.width} ${connectorY} H ${nodeX}" stroke="${connectorColor}"/>
     ${rows}
   </g>`;
 }
@@ -305,47 +956,170 @@ function referenceDetails(reference) {
 }
 
 function ensureHistoryStructure() {
-  if ($('#commits') && $('.history-head')) return;
-  $('#history-view').innerHTML = `<div class="history-head"><span>BRANCHE / TAG · GRAPHE</span><span>MESSAGE DU COMMIT</span><span>AUTEUR</span><span>DATE</span></div><div id="commits" class="commit-list"></div>`;
+  if ($('#commits') && $('.history-head') && $('#history-search')) return;
+  $('#history-view').innerHTML = `<div class="history-tools"><span>⌕</span><input id="history-search" type="search" placeholder="Texte, author:, file:, after:, before:, branch:…" autocomplete="off" title="Exemple : correction author:Daisy file:src/app.js after:2026-01-01" value="${escapeHtml(state.historyQuery)}"><button id="clear-history-search" type="button" title="Effacer la recherche">×</button></div><div class="history-head"><span>BRANCHE / TAG · GRAPHE</span><span>MESSAGE DU COMMIT</span><span>AUTEUR</span><span>DATE</span></div><div id="commits" class="commit-list"></div>`;
+  bindHistorySearch();
+}
+
+function bindHistorySearch() {
+  const input = $('#history-search');
+  if (!input || input.dataset.bound) return;
+  input.dataset.bound = 'true';
+  let timer;
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    state.historyQuery = input.value.trim();
+    timer = setTimeout(runHistorySearch, 180);
+  });
+  $('#clear-history-search').addEventListener('click', () => {
+    state.historyQuery = '';
+    input.value = '';
+    renderCommits();
+    $('#history-search')?.focus();
+  });
+}
+
+async function runHistorySearch() {
+  const query = state.historyQuery;
+  if (!query) return renderCommits();
+  const request = ++state.searchRequest;
+  const commits = await action('', () => window.forkline.searchHistory(parseHistorySearch(query)).then(unwrap));
+  if (commits === null || request !== state.searchRequest || query !== state.historyQuery) return;
+  showCommitResults(`RÉSULTATS POUR « ${query} »`, commits);
+}
+
+function parseHistorySearch(value) {
+  const filters = {};
+  const remaining = String(value).replace(/\b(author|file|after|before|branch):(?:"([^"]+)"|(\S+))/gi, (_match, key, quoted, plain) => {
+    const names = { author: 'author', file: 'file', after: 'after', before: 'before', branch: 'ref' };
+    filters[names[key.toLowerCase()]] = quoted || plain;
+    return ' ';
+  });
+  filters.query = remaining.replace(/\s+/g, ' ').trim();
+  return filters;
+}
+
+function showCommitResults(title, commits) {
+  $('#history-view').classList.remove('hidden');
+  $('#changes-view').classList.add('hidden');
+  $('#history-view').innerHTML = `<div class="result-view"><header><div><p class="eyebrow">${escapeHtml(title)}</p><h3>${commits.length} commit${commits.length > 1 ? 's' : ''}</h3></div><button id="close-result-view" type="button" class="icon-button" title="Revenir au graphe">×</button></header><div class="commit-results">${commits.length ? commits.map((commit) => `<button type="button" class="commit-result" data-result-hash="${escapeHtml(commit.hash)}"><span><strong>${escapeHtml(commit.subject)}</strong><small>${escapeHtml(commit.shortHash)}</small></span><span>${escapeHtml(commit.author)}</span><span>${escapeHtml(relativeTime(commit.date))}</span></button>`).join('') : '<p class="empty-results">Aucun résultat.</p>'}</div></div>`;
+  $('#close-result-view').addEventListener('click', () => {
+    state.historyQuery = '';
+    renderCommits();
+  });
+  $$('[data-result-hash]').forEach((row) => row.addEventListener('click', () => {
+    const commit = commits.find((candidate) => candidate.hash === row.dataset.resultHash);
+    if (commit) showCommitDetails(commit);
+  }));
 }
 
 function renderCommits() {
   ensureHistoryStructure();
-  const graph = window.ForklineGraph.layoutCommitGraph(state.snapshot.commits, {
+  bindHistorySearch();
+  const commits = visibleGraphCommits();
+  const graph = window.ForklineGraph.layoutCommitGraph(commits, {
     headHash: state.snapshot.headHash,
     showWorkingTree: state.snapshot.status.files.length > 0,
     branches: state.snapshot.branches,
     orderDebug: state.snapshot.orderDebug,
     debug: window.forkline.debugGraphLayout,
   });
-  const labelWidth = state.snapshot.commits.reduce((width, commit) => {
+  const visibleStashes = (state.snapshot.stashes || []).filter((stash) => !state.hiddenStashHashes.has(stash.hash));
+  const hasWipStash = state.snapshot.status.files.length > 0 && visibleStashes.some((stash) => stash.baseHash === state.snapshot.headHash);
+  const displayLaneCount = graph.laneCount + (hasWipStash ? 1 : 0);
+  const labelWidth = commits.reduce((width, commit) => {
     const refsWidth = graphLabelGroupMetrics(graphLabelDetails(commit, graphColor(0))).width;
     return Math.max(width, refsWidth);
   }, 0);
   const workingTreeLabelWidth = graph.workingTreeNode ? 75 : 0;
   const labelArea = Math.max(labelWidth, workingTreeLabelWidth);
-  const graphWidth = Math.max(46, graphLaneWidth(graph.laneCount) + (labelArea ? labelArea + 2 : 0));
+  const graphWidth = Math.max(46, graphLaneWidth(displayLaneCount) + (labelArea ? labelArea + 2 : 0));
   $('#commits').style.setProperty('--graph-width', `${graphWidth}px`);
   $('.history-head').style.setProperty('--graph-width', `${graphWidth}px`);
   const rows = [];
-  state.snapshot.commits.forEach((commit, index) => {
+  commits.forEach((commit, index) => {
     if (graph.workingTreeNode && index === 0) {
       rows.push(`<button class="working-tree-row" type="button" title="Afficher les modifications locales">
-        ${renderWorkingTreeRow(graph.workingTreeNode, graph.laneCount, graphWidth, state.snapshot.status.files.length)}
+        ${renderWorkingTreeRow(graph.workingTreeNode, displayLaneCount, graphWidth, state.snapshot.status.files.length)}
         <span></span>
         <span></span><span></span>
       </button>`);
     }
-    rows.push(`<button class="commit-row${commit.hash === state.selectedCommit ? ' selected' : ''}" data-hash="${commit.hash}">
-      ${renderGraphRow(graph.rows[index], graph.laneCount, commit, graphWidth, index, graph.workingTreeNode)}
+    const attachedStashes = (state.snapshot.stashes || []).filter((stash) => stash.baseHash === commit.hash && !state.hiddenStashHashes.has(stash.hash));
+    attachedStashes.forEach((stash) => {
+      const stashCommit = state.snapshot.commits.find((candidate) => candidate.hash === stash.hash);
+      const isBesideWip = state.snapshot.status.files.length > 0 && stash.baseHash === state.snapshot.headHash;
+      const stashLane = isBesideWip ? graph.laneCount : graph.rows[index].lane;
+      rows.push(`<button class="commit-row stash-row" data-stash-ref="${escapeHtml(stash.ref)}">
+        ${renderStashGraphRow(stash, graph.rows[index].lane, stashLane, graph.rows[index].laneColor, displayLaneCount, graphWidth)}
+        <span class="commit-main"><span class="commit-subject">${escapeHtml(stash.message)}</span><span class="commit-meta">${escapeHtml(stashCommit?.shortHash || stash.hash.slice(0, 7))}</span></span>
+        <span class="commit-author">${escapeHtml(stashCommit?.author || '')}</span>
+        <span class="commit-date" title="${escapeHtml(new Date(stash.date).toLocaleString('fr'))}">${relativeTime(stash.date)}</span>
+      </button>`);
+    });
+    rows.push(`<button class="commit-row${commit.hash === state.selectedCommit ? ' selected' : ''}${state.compareSelection.includes(commit.hash) ? ' compare-selected' : ''}${commit.stashRole ? ` stash-row stash-${commit.stashRole}` : ''}" data-hash="${commit.hash}">
+      ${renderGraphRow(graph.rows[index], displayLaneCount, commit, graphWidth, index, graph.workingTreeNode, attachedStashes.length > 0)}
       <span class="commit-main"><span class="commit-subject">${escapeHtml(commit.subject)}</span><span class="commit-meta">${commit.shortHash}</span></span>
       <span class="commit-author">${escapeHtml(commit.author)}</span>
       <span class="commit-date" title="${escapeHtml(new Date(commit.date).toLocaleString('fr'))}">${relativeTime(commit.date)}</span>
     </button>`);
   });
   $('#commits').innerHTML = rows.join('');
-  $$('.commit-row').forEach((row) => row.addEventListener('click', () => selectCommit(row.dataset.hash)));
+  $$('[data-stash-ref]').forEach((row) => row.addEventListener('click', () => selectStash(row.dataset.stashRef)));
+  $$('[data-stash-ref]').forEach((row) => row.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    showStashContextMenu(row.dataset.stashRef, event.clientX, event.clientY);
+  }));
+  $$('.commit-row').forEach((row) => row.addEventListener('click', (event) => {
+    const commit = state.snapshot.commits.find((item) => item.hash === row.dataset.hash);
+    if (commit && (event.ctrlKey || event.metaKey)) {
+      toggleCommitComparison(commit.hash);
+      return;
+    }
+    if (commit?.stashRole === 'worktree' && commit.stashRef) selectStash(commit.stashRef);
+    else selectCommit(row.dataset.hash);
+  }));
+  $$('.commit-row').forEach((row) => row.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const commit = state.snapshot.commits.find((item) => item.hash === row.dataset.hash);
+    if (commit) showCommitContextMenu(commit, event.clientX, event.clientY);
+  }));
   $$('.working-tree-row').forEach((row) => row.addEventListener('click', () => showInspector('#worktree-detail')));
+  renderComparisonBar();
+}
+
+function toggleCommitComparison(hash) {
+  const index = state.compareSelection.indexOf(hash);
+  if (index >= 0) state.compareSelection.splice(index, 1);
+  else {
+    if (state.compareSelection.length === 2) state.compareSelection.shift();
+    state.compareSelection.push(hash);
+  }
+  renderCommits();
+}
+
+function renderComparisonBar() {
+  $('#comparison-bar')?.remove();
+  if (!state.compareSelection.length) return;
+  const commits = state.compareSelection.map((hash) => state.snapshot.commits.find((commit) => commit.hash === hash)).filter(Boolean);
+  const bar = document.createElement('div');
+  bar.id = 'comparison-bar';
+  bar.className = 'comparison-bar';
+  bar.innerHTML = `<span>${commits.map((commit) => escapeHtml(commit.shortHash)).join(' → ')}</span><button type="button" id="run-commit-comparison"${commits.length !== 2 ? ' disabled' : ''}>Comparer</button><button type="button" id="export-commit-selection">Exporter le patch</button><button type="button" id="clear-commit-comparison" title="Effacer">×</button>`;
+  document.body.append(bar);
+  $('#clear-commit-comparison').addEventListener('click', () => {
+    state.compareSelection = [];
+    renderCommits();
+  });
+  $('#run-commit-comparison').addEventListener('click', () => {
+    if (commits.length === 2) showRevisionComparison(commits[0].hash, commits[1].hash, `${commits[0].shortHash} → ${commits[1].shortHash}`);
+  });
+  $('#export-commit-selection').addEventListener('click', async () => {
+    const exportedPath = await action('', () => window.forkline.exportCommitPatch(commits.map((commit) => commit.hash), `${commits.map((commit) => commit.shortHash).join('-')}.patch`).then(unwrap));
+    if (exportedPath) toast(`Patch exporté : ${exportedPath}`);
+  });
 }
 
 function renderChanges() {
@@ -356,20 +1130,33 @@ function renderChanges() {
 
 function renderWorktreeInspector() {
   const files = state.snapshot.status.files;
+  const operation = state.snapshot.operation;
   $('#worktree-detail').innerHTML = `
+    ${operation ? `<section class="operation-banner"><div><p class="eyebrow">OPÉRATION GIT</p><strong>${escapeHtml(operation.label)}</strong><span>Résolvez les conflits par clic droit sur un fichier, puis continuez.</span></div><div><button class="button button-small" data-operation-action="abort">Abandonner</button><button class="button button-small button-primary" data-operation-action="continue">Continuer</button></div></section>` : ''}
     <header class="worktree-header"><div><p class="eyebrow">TRAVAIL EN COURS</p><h3>${files.length} fichier${files.length > 1 ? 's' : ''} modifié${files.length > 1 ? 's' : ''}</h3></div><button class="text-button" data-worktree-action="stage-all">Tout ajouter</button></header>
     <div class="worktree-files"><h4>Fichiers non indexés <span>${files.filter((file) => !file.staged).length}</span></h4><div id="worktree-unstaged-files" class="file-list"></div><h4>Fichiers indexés <span>${files.filter((file) => file.staged).length}</span></h4><div id="worktree-staged-files" class="file-list"></div></div>
-    <div class="worktree-commit"><label for="worktree-commit-message">RÉSUMÉ DU COMMIT</label><textarea id="worktree-commit-message" rows="4" placeholder="Décrire clairement ce qui change…"></textarea><button class="button button-primary" data-worktree-action="commit">Créer le commit</button></div>`;
+    <div class="worktree-commit"><label for="worktree-commit-message">RÉSUMÉ DU COMMIT</label><textarea id="worktree-commit-message" rows="4" placeholder="Décrire clairement ce qui change…"></textarea><label class="commit-option"><input id="worktree-commit-amend" type="checkbox"><span>Modifier le dernier commit</span></label><label class="commit-option"><input id="worktree-commit-sign" type="checkbox"${state.snapshot.commitPreferences?.gpgSign ? ' checked' : ''}><span>Signer ce commit</span></label><button class="button button-primary" data-worktree-action="commit">Créer le commit</button></div>`;
   renderFileList('#worktree-staged-files', files.filter((file) => file.staged), true);
   renderFileList('#worktree-unstaged-files', files.filter((file) => file.workingTree !== ' ' || file.untracked), false);
+  $$('[data-operation-action]').forEach((button) => button.addEventListener('click', async () => {
+    const mode = button.dataset.operationAction;
+    if (mode === 'abort' && !window.confirm(`Abandonner l’opération « ${operation.label} » ?`)) return;
+    const method = mode === 'continue' ? 'continueOperation' : 'abortOperation';
+    await executeRepositoryAction(mode === 'continue' ? 'Opération poursuivie' : 'Opération abandonnée', () => window.forkline[method](operation.type));
+  }));
   $('[data-worktree-action="stage-all"]').addEventListener('click', async () => {
     const paths = files.filter((file) => file.workingTree !== ' ' || file.untracked).map((file) => file.path);
     if (paths.length) { const result = await action('Tous les fichiers ont été ajoutés', () => window.forkline.stage(paths).then(unwrap)); if (result) applySnapshot(result); }
   });
   $('[data-worktree-action="commit"]').addEventListener('click', async () => {
     const message = $('#worktree-commit-message').value.trim();
-    const result = await action('Commit créé', () => window.forkline.commit(message).then(unwrap));
+    const amend = $('#worktree-commit-amend').checked;
+    const sign = $('#worktree-commit-sign').checked;
+    const result = await action(amend ? 'Dernier commit modifié' : 'Commit créé', () => window.forkline.commit(message, { amend, sign }).then(unwrap));
     if (result) applySnapshot(result.snapshot);
+  });
+  $('#worktree-commit-amend').addEventListener('change', (event) => {
+    if (event.target.checked && !$('#worktree-commit-message').value.trim()) $('#worktree-commit-message').value = state.snapshot.commits.find((commit) => commit.hash === state.snapshot.headHash)?.subject || '';
   });
 }
 
@@ -390,11 +1177,50 @@ function renderFileList(selector, files, staged) {
         selectFile(row.dataset.file, row.dataset.staged === 'true');
       }
     });
+    row.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      showFileContextMenu(row.dataset.file, event.clientX, event.clientY);
+    });
   });
 }
 
+function showFileContextMenu(file, x, y) {
+  const conflicted = state.snapshot.status.files.some((entry) => entry.path === file && entry.conflicted);
+  const actions = [
+    { id: 'open', icon: '↗', label: state.externalEditorCommand ? 'Ouvrir dans l’éditeur externe' : 'Ouvrir dans l’application par défaut', run: () => action('', () => window.forkline.openFile(file).then(unwrap)) },
+    { id: 'editor', icon: '⚙', label: 'Configurer l’éditeur externe…', run: () => configureExternalEditor() },
+    { id: 'history', icon: '◷', label: 'Afficher l’historique du fichier', run: () => showFileHistory(file) },
+    { id: 'blame', icon: '≡', label: 'Afficher le blame', run: () => showFileBlame(file) },
+    { id: 'copy', icon: '⧉', label: 'Copier le chemin', run: () => copyText(file, 'Chemin copié') },
+  ];
+  if (conflicted) actions.unshift(
+    { id: 'ours', icon: '←', label: 'Utiliser la version ours (Git)', run: () => resolveConflict(file, 'ours') },
+    { id: 'theirs', icon: '→', label: 'Utiliser la version theirs (Git)', run: () => resolveConflict(file, 'theirs') },
+    { id: 'resolved', icon: '✓', label: 'Marquer le contenu actuel comme résolu', run: () => resolveConflict(file, 'resolved') },
+  );
+  showSimpleContextMenu(file, actions, x, y);
+}
+
+async function resolveConflict(file, strategy) {
+  await executeRepositoryAction('Conflit marqué comme résolu', () => window.forkline.resolveConflict(file, strategy));
+  showInspector('#worktree-detail');
+}
+
+async function showFileHistory(file) {
+  const commits = await action('', () => window.forkline.fileHistory(file).then(unwrap));
+  if (commits === null) return;
+  showCommitResults(`HISTORIQUE DU FICHIER · ${file}`, commits);
+}
+
+async function showFileBlame(file) {
+  const blame = await action('', () => window.forkline.blame(file).then(unwrap));
+  if (blame === null) return;
+  showTextPreview('BLAME', file, blame || 'Aucune ligne à afficher.');
+}
+
 function showInspector(id) {
-  ['#inspector-empty', '#commit-detail', '#worktree-detail', '#diff-detail'].forEach((selector) => $(selector).classList.toggle('hidden', selector !== id));
+  ['#inspector-empty', '#commit-detail', '#worktree-detail', '#stash-detail', '#diff-detail'].forEach((selector) => $(selector).classList.toggle('hidden', selector !== id));
 }
 
 function selectCommit(hash) {
@@ -402,15 +1228,43 @@ function selectCommit(hash) {
   if (!commit) return;
   state.selectedCommit = hash;
   renderCommits();
+  showCommitDetails(commit);
+}
+
+function showCommitDetails(commit) {
+  state.selectedCommit = commit.hash;
   $('#commit-detail').innerHTML = `
     <p class="eyebrow">DÉTAIL DU COMMIT</p><p class="detail-hash">${commit.hash}</p>
     <h3>${escapeHtml(commit.subject)}</h3>
     <dl class="detail-grid"><dt>Auteur</dt><dd>${escapeHtml(commit.author)}<br>${escapeHtml(commit.email)}</dd><dt>Date</dt><dd>${escapeHtml(new Date(commit.date).toLocaleString('fr'))}</dd><dt>Parent${commit.parents.length > 1 ? 's' : ''}</dt><dd>${commit.parents.map((parent) => parent.slice(0, 10)).join(', ') || 'Commit initial'}</dd></dl>
-    <div class="detail-refs">${commit.refs.map((ref) => `<span class="detail-ref">${escapeHtml(ref)}</span>`).join('')}</div>`;
+    <div class="detail-refs">${commit.refs.map((ref) => `<span class="detail-ref">${escapeHtml(ref)}</span>`).join('')}</div>
+    <section class="commit-files-section"><p class="eyebrow">FICHIERS</p><div id="commit-files" class="commit-files"><span>Chargement…</span></div></section>`;
   showInspector('#commit-detail');
+  loadCommitFiles(commit);
+}
+
+async function loadCommitFiles(commit) {
+  const files = await window.forkline.commitFiles(commit.hash).then(unwrap).catch((error) => {
+    toast(error.message, true);
+    return null;
+  });
+  if (!files || state.selectedCommit !== commit.hash || !$('#commit-files')) return;
+  $('#commit-files').innerHTML = files.length ? files.map((file) => `<button type="button" class="commit-file" data-commit-file="${escapeHtml(file.path)}"><span class="status-badge${file.status === 'D' ? ' deleted' : ''}">${escapeHtml(file.status)}</span><span>${escapeHtml(file.path)}</span></button>`).join('') : '<span>Aucun fichier.</span>';
+  $$('[data-commit-file]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const diff = await action('', () => window.forkline.commitFileDiff(commit.hash, button.dataset.commitFile).then(unwrap));
+      if (diff !== null) showTextPreview('DIFF DU COMMIT', button.dataset.commitFile, renderDiffMarkup(diff || 'Aucune différence.', 0, false), true);
+    });
+    button.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      showFileContextMenu(button.dataset.commitFile, event.clientX, event.clientY);
+    });
+  });
 }
 
 async function selectFile(file, staged) {
+  const status = state.snapshot.status.files.find((entry) => entry.path === file);
+  if (status?.conflicted) return selectConflictFile(file);
   state.selectedFile = `${staged}:${file}`;
   $('#history-view').classList.remove('hidden');
   $('#changes-view').classList.add('hidden');
@@ -427,14 +1281,72 @@ async function selectFile(file, staged) {
   if (result !== null) renderDiffContent(result, staged);
 }
 
+async function selectConflictFile(file) {
+  state.selectedFile = `false:${file}`;
+  const versions = await action('', () => window.forkline.conflictVersions(file).then(unwrap));
+  if (!versions) return;
+  state.conflictResolution = { file, content: versions.result, hunks: parseConflictHunks(versions.result) };
+  $('#history-view').classList.remove('hidden');
+  $('#changes-view').classList.add('hidden');
+  $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === 'history'));
+  $('#history-view').innerHTML = `<div class="conflict-preview"><header><div><p class="eyebrow">RÉSOLUTION DE CONFLIT</p><h3>${escapeHtml(file)}</h3></div><button id="close-diff-preview" type="button" class="icon-button" title="Fermer">×</button></header><div class="conflict-columns"><section><h4>BASE</h4><pre>${escapeHtml(versions.base || 'Version absente')}</pre></section><section><h4>OURS</h4><pre>${escapeHtml(versions.ours || 'Version absente')}</pre><button type="button" class="button button-small" data-conflict-whole="ours">Utiliser ours</button></section><section><h4>THEIRS</h4><pre>${escapeHtml(versions.theirs || 'Version absente')}</pre><button type="button" class="button button-small" data-conflict-whole="theirs">Utiliser theirs</button></section></div><section class="conflict-result"><div><p class="eyebrow">RÉSULTAT</p><button id="save-conflict-result" type="button" class="button button-small button-primary">Marquer comme résolu</button></div><div id="conflict-hunks"></div><textarea id="conflict-result-content" spellcheck="false"></textarea></section></div>`;
+  $('#close-diff-preview').addEventListener('click', closeDiffPreview);
+  $('[data-conflict-whole="ours"]').addEventListener('click', () => resolveConflict(file, 'ours'));
+  $('[data-conflict-whole="theirs"]').addEventListener('click', () => resolveConflict(file, 'theirs'));
+  $('#conflict-result-content').value = versions.result;
+  $('#conflict-result-content').addEventListener('input', (event) => {
+    state.conflictResolution.content = event.target.value;
+    state.conflictResolution.hunks = parseConflictHunks(event.target.value);
+    renderConflictHunks();
+  });
+  $('#save-conflict-result').addEventListener('click', () => saveConflictContent(file, $('#conflict-result-content').value));
+  renderConflictHunks();
+}
+
+function parseConflictHunks(content) {
+  const hunks = [];
+  const pattern = /^<<<<<<<[^\n]*\n([\s\S]*?)(?:^\|\|\|\|\|\|\|[^\n]*\n[\s\S]*?)?^=======\s*\n([\s\S]*?)^>>>>>>>[^\n]*(?:\n|$)/gm;
+  let match;
+  while ((match = pattern.exec(content))) hunks.push({ start: match.index, end: pattern.lastIndex, ours: match[1], theirs: match[2] });
+  return hunks;
+}
+
+function renderConflictHunks() {
+  const hunks = state.conflictResolution?.hunks || [];
+  $('#conflict-hunks').innerHTML = hunks.length ? hunks.map((hunk, index) => `<article class="conflict-hunk-choice"><header><strong>Conflit ${index + 1}</strong><span><button type="button" data-conflict-hunk="${index}" data-choice="ours">Choisir ours</button><button type="button" data-conflict-hunk="${index}" data-choice="both">Garder les deux</button><button type="button" data-conflict-hunk="${index}" data-choice="theirs">Choisir theirs</button></span></header><div><pre>${escapeHtml(hunk.ours)}</pre><pre>${escapeHtml(hunk.theirs)}</pre></div></article>`).join('') : '<p class="conflict-clean">Aucun marqueur de conflit restant.</p>';
+  $$('[data-conflict-hunk]').forEach((button) => button.addEventListener('click', () => chooseConflictHunk(Number(button.dataset.conflictHunk), button.dataset.choice)));
+}
+
+function chooseConflictHunk(index, choice) {
+  const hunk = state.conflictResolution.hunks[index];
+  if (!hunk) return;
+  const replacement = choice === 'ours' ? hunk.ours : choice === 'theirs' ? hunk.theirs : `${hunk.ours}${hunk.theirs}`;
+  state.conflictResolution.content = `${state.conflictResolution.content.slice(0, hunk.start)}${replacement}${state.conflictResolution.content.slice(hunk.end)}`;
+  state.conflictResolution.hunks = parseConflictHunks(state.conflictResolution.content);
+  $('#conflict-result-content').value = state.conflictResolution.content;
+  renderConflictHunks();
+}
+
+async function saveConflictContent(file, content) {
+  if (parseConflictHunks(content).length && !window.confirm('Des marqueurs de conflit sont encore présents. Marquer quand même ce fichier comme résolu ?')) return;
+  const snapshot = await action('Conflit résolu et fichier indexé', () => window.forkline.resolveConflictContent(file, content).then(unwrap));
+  if (snapshot) {
+    state.conflictResolution = null;
+    applySnapshot(snapshot);
+    closeDiffPreview();
+    showInspector('#worktree-detail');
+  }
+}
+
 function renderDiffContent(diff, staged) {
   const hunks = splitDiffHunks(diff);
-  $('#left-diff-content').innerHTML = renderDiffMarkup(diff, hunks.length);
+  $('#left-diff-content').innerHTML = renderDiffMarkup(diff, hunks.length, true, staged);
   $$('.diff-hunk-action').forEach((button) => button.addEventListener('click', () => {
     const patch = hunks[Number(button.dataset.hunk)];
-    const reverse = button.classList.contains('discard');
-    const targetStaged = staged || button.classList.contains('unstage');
-    action(reverse ? 'Hunk abandonné' : 'Hunk indexé', () => window.forkline.applyHunk(patch, targetStaged, reverse).then(unwrap)).then((snapshot) => {
+    const reverse = button.classList.contains('discard') || button.classList.contains('unstage');
+    const targetStaged = staged || button.classList.contains('stage') || button.classList.contains('unstage');
+    const label = button.classList.contains('discard') ? 'Hunk abandonné' : button.classList.contains('unstage') ? 'Hunk retiré de l’index' : 'Hunk indexé';
+    action(label, () => window.forkline.applyHunk(patch, targetStaged, reverse).then(unwrap)).then((snapshot) => {
       if (snapshot) applySnapshot(snapshot);
     });
   }));
@@ -447,12 +1359,16 @@ function splitDiffHunks(diff) {
   return starts.map((start, index) => [header, ...lines.slice(start, starts[index + 1] || lines.length)].join('\n'));
 }
 
-function renderDiffMarkup(diff, hunkCount = 0) {
+function renderDiffMarkup(diff, hunkCount = 0, showActions = true, staged = false) {
   let hunkIndex = -1;
   return escapeHtml(diff).split('\n').map((line) => {
     if (line.startsWith('@@')) {
       hunkIndex += 1;
-      return `<span class="diff-hunk"><span>${line}</span><span class="diff-hunk-actions"><button class="diff-hunk-action discard" data-hunk="${hunkIndex}" type="button">Abandonner le hunk</button><button class="diff-hunk-action stage" data-hunk="${hunkIndex}" type="button">Indexer le hunk</button></span></span>`;
+      const actionButtons = staged
+        ? `<button class="diff-hunk-action unstage" data-hunk="${hunkIndex}" type="button">Retirer de l’index</button>`
+        : `<button class="diff-hunk-action discard" data-hunk="${hunkIndex}" type="button">Abandonner le hunk</button><button class="diff-hunk-action stage" data-hunk="${hunkIndex}" type="button">Indexer le hunk</button>`;
+      const actions = showActions ? `<span class="diff-hunk-actions">${actionButtons}</span>` : '';
+      return `<span class="diff-hunk"><span>${line}</span>${actions}</span>`;
     }
     if (line.startsWith('+') && !line.startsWith('+++')) return `<span class="diff-add">${line}</span>`;
     if (line.startsWith('-') && !line.startsWith('---')) return `<span class="diff-remove">${line}</span>`;
@@ -466,10 +1382,75 @@ function renderDiff(diff) {
 
 function closeDiffPreview() {
   state.selectedFile = null;
+  state.selectedStash = null;
+  renderStashes();
   renderCommits();
   $('#history-view').classList.remove('hidden');
   $('#changes-view').classList.add('hidden');
   $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === 'history'));
+  showInspector('#worktree-detail');
+}
+
+function renderStashDetail(stash) {
+  $('#stash-detail').innerHTML = `
+    <header class="stash-detail-header"><div><p class="eyebrow">${escapeHtml(stash.ref)}</p><h3>${escapeHtml(stash.message)}</h3></div><span class="stash-detail-glyph">▣</span></header>
+    <dl class="detail-grid"><dt>Branche</dt><dd>${escapeHtml(stash.branch || 'HEAD détaché')}</dd><dt>Date</dt><dd>${escapeHtml(new Date(stash.date).toLocaleString('fr'))}</dd><dt>Base</dt><dd>${escapeHtml((stash.baseHash || '').slice(0, 10))}</dd><dt>Fichiers</dt><dd>${stash.fileCount}</dd></dl>
+    <div class="stash-files">${stash.files.map((file) => `<label><input type="checkbox" data-stash-file value="${escapeHtml(file)}" checked><span>${escapeHtml(file)}</span></label>`).join('')}</div>
+    <div class="stash-actions"><button class="button button-primary" data-stash-action="apply">Appliquer tout</button><button class="button" data-stash-action="apply-selected">Appliquer la sélection</button><button class="button" data-stash-action="pop">Appliquer et supprimer</button><button class="button danger" data-stash-action="drop">Supprimer</button></div>`;
+  $$('[data-stash-action]').forEach((button) => button.addEventListener('click', () => runStashAction(button.dataset.stashAction, stash.ref)));
+  showInspector('#stash-detail');
+}
+
+async function selectStash(ref) {
+  const stash = (state.snapshot.stashes || []).find((entry) => entry.ref === ref);
+  if (!stash) return;
+  state.selectedFile = null;
+  state.selectedStash = ref;
+  renderStashes();
+  renderStashDetail(stash);
+  $('#history-view').classList.remove('hidden');
+  $('#changes-view').classList.add('hidden');
+  $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === 'history'));
+  $('#history-view').innerHTML = `<div class="diff-preview stash-diff-preview"><header><div><p class="eyebrow">APERÇU DU STASH · ${escapeHtml(ref)}</p><h3>${escapeHtml(stash.message)}</h3></div><button id="close-diff-preview" type="button" class="icon-button" title="Fermer l’aperçu" aria-label="Fermer l’aperçu">×</button></header><pre id="left-diff-content">Chargement…</pre></div>`;
+  $('#close-diff-preview').addEventListener('click', closeDiffPreview);
+  const diff = await action('', () => window.forkline.stashDiff(ref).then(unwrap));
+  if (diff !== null && state.selectedStash === ref && $('#left-diff-content')) $('#left-diff-content').innerHTML = renderDiffMarkup(diff, 0, false);
+}
+
+async function runStashAction(operation, ref) {
+  const labels = { apply: 'Stash appliqué', 'apply-selected': 'Fichiers du stash appliqués', pop: 'Stash appliqué et supprimé', drop: 'Stash supprimé' };
+  const methods = { apply: 'applyStash', 'apply-selected': 'applyStash', pop: 'popStash', drop: 'dropStash' };
+  if (operation === 'drop' && !window.confirm(`Supprimer définitivement ${ref} ?`)) return;
+  let selectedFiles = [];
+  if (operation === 'apply-selected') {
+    selectedFiles = $$('[data-stash-file]:checked').map((input) => input.value);
+    if (!selectedFiles.length) {
+      toast('Sélectionnez au moins un fichier du stash.', true);
+      return;
+    }
+  }
+  if (operation !== 'drop') {
+    const staged = state.snapshot.status.files.filter((file) => file.staged);
+    if (staged.length) {
+      toast('Retirez les fichiers de l’index ou validez-les avant d’appliquer un stash.', true);
+      return;
+    }
+    const unstaged = state.snapshot.status.files.filter((file) => file.workingTree !== ' ' || file.untracked);
+    if (unstaged.length && !window.confirm(`Le dépôt contient ${unstaged.length} modification${unstaged.length > 1 ? 's' : ''} non indexée${unstaged.length > 1 ? 's' : ''}. Appliquer le stash par-dessus ?`)) return;
+  }
+  const result = await action('', () => window.forkline[methods[operation]](ref, selectedFiles).then(unwrap));
+  if (!result) return;
+  state.selectedStash = null;
+  applySnapshot(result.snapshot);
+  renderStashes();
+  if (result.conflicted) {
+    toast(`Conflits dans ${result.conflicts.length} fichier${result.conflicts.length > 1 ? 's' : ''}. Résolvez-les dans le travail en cours.`, true);
+    renderCommits();
+    showInspector('#worktree-detail');
+    return;
+  }
+  toast(labels[operation]);
+  renderCommits();
   showInspector('#worktree-detail');
 }
 
@@ -523,14 +1504,24 @@ async function handleRepositoryUpdate(snapshot) {
   const diffScroll = $('#left-diff-content') ? { top: $('#left-diff-content').scrollTop, left: $('#left-diff-content').scrollLeft } : null;
   const selectedFile = state.selectedFile;
   const selectedCommit = state.selectedCommit;
+  const selectedStash = state.selectedStash;
   const diffWasOpen = Boolean($('#left-diff-content'));
   const worktreeWasOpen = !$('#worktree-detail').classList.contains('hidden');
   const selectedPath = selectedFile ? selectedFile.slice(selectedFile.indexOf(':') + 1) : null;
   const currentFile = selectedPath ? snapshot.status.files.find((item) => item.path === selectedPath) : null;
-  const preserveDiff = diffWasOpen && Boolean(currentFile);
+  const currentStash = selectedStash ? (snapshot.stashes || []).find((stash) => stash.ref === selectedStash) : null;
+  const preserveStash = diffWasOpen && Boolean(currentStash);
+  const preserveDiff = diffWasOpen && (Boolean(currentFile) || preserveStash);
   if (!applySnapshot(snapshot, { preserveHistory: preserveDiff })) return;
 
-  if (preserveDiff) {
+  if (preserveStash) {
+    state.selectedStash = currentStash.ref;
+    renderStashes();
+    renderStashDetail(currentStash);
+    const diff = await window.forkline.stashDiff(currentStash.ref).then(unwrap);
+    if (state.snapshot.repositoryRevision !== snapshot.repositoryRevision || !$('#left-diff-content')) return;
+    $('#left-diff-content').innerHTML = renderDiffMarkup(diff, 0, false);
+  } else if (preserveDiff) {
     state.selectedFile = `${currentFile.staged}:${selectedPath}`;
     const diff = await window.forkline.diff(selectedPath, currentFile.staged).then(unwrap);
     if (state.snapshot.repositoryRevision !== snapshot.repositoryRevision || !$('#left-diff-content')) return;
@@ -539,6 +1530,7 @@ async function handleRepositoryUpdate(snapshot) {
     $('#preview-diff-action').dataset.staged = currentFile.staged;
   } else if (diffWasOpen) {
     state.selectedFile = null;
+    state.selectedStash = null;
   } else if (selectedCommit && snapshot.commits.some((commit) => commit.hash === selectedCommit)) {
     selectCommit(selectedCommit);
   } else if (worktreeWasOpen) {
@@ -561,6 +1553,23 @@ async function openRepository() {
   if (result) applySnapshot(result);
 }
 
+async function cloneRepository() {
+  const source = window.prompt('Adresse HTTPS, SSH ou chemin du dépôt à cloner :');
+  if (!source?.trim()) return;
+  const inferred = source.trim().replace(/[\\/]$/, '').split(/[\\/]/).pop().replace(/\.git$/, '') || 'depot';
+  const directoryName = window.prompt('Nom du dossier de destination :', inferred);
+  if (!directoryName?.trim()) return;
+  const result = await action('', () => window.forkline.cloneRepository(source.trim(), directoryName.trim()).then(unwrap));
+  if (result) applySnapshot(result);
+}
+
+async function initializeRepository() {
+  const branch = window.prompt('Nom de la branche initiale :', 'main');
+  if (!branch?.trim()) return;
+  const result = await action('', () => window.forkline.initializeRepository(branch.trim()).then(unwrap));
+  if (result) applySnapshot(result);
+}
+
 function setView(view) {
   state.view = view;
   $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
@@ -571,8 +1580,64 @@ function setView(view) {
 }
 
 $('#open-repo-welcome').addEventListener('click', openRepository);
+$('#clone-repo-welcome').addEventListener('click', cloneRepository);
+$('#init-repo-welcome').addEventListener('click', initializeRepository);
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('#branch-context-menu')) closeBranchContextMenu();
+  if (!event.target.closest('#commit-context-menu')) closeCommitContextMenu();
+  if (!event.target.closest('#stash-context-menu')) closeStashContextMenu();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    closeBranchContextMenu();
+    closeCommitContextMenu();
+    closeStashContextMenu();
+  }
+});
+window.addEventListener('blur', () => {
+  closeBranchContextMenu();
+  closeCommitContextMenu();
+  closeStashContextMenu();
+});
 $('#open-repo').addEventListener('click', openRepository);
+$('#toolbar-repository').addEventListener('click', openRepository);
 $('#refresh').addEventListener('click', () => refresh());
+async function performUndo(count = 1) {
+  const history = state.snapshot.undoHistory || [];
+  const target = history[Math.min(count, history.length) - 1]?.label || state.snapshot.undoPlan?.label;
+  if (!state.snapshot.undoPlan?.available || !window.confirm(`${count > 1 ? `Annuler ${count} actions jusqu’à « ${target} »` : target} ?\n\nForkline conservera les modifications des commits annulés dans l’index.`)) return;
+  const result = await action('', () => window.forkline.undo(count).then(unwrap));
+  if (result?.snapshot) {
+    applySnapshot(result.snapshot);
+    toast(result.labels?.length > 1 ? `${result.labels.length} actions annulées` : result.labels?.[0] || 'Action annulée');
+  }
+}
+
+async function performRedo(count = 1) {
+  const history = state.snapshot.redoHistory || [];
+  const target = history[Math.min(count, history.length) - 1]?.label || 'la dernière action';
+  if (!state.snapshot.redoAvailable || !window.confirm(count > 1 ? `Rétablir ${count} actions jusqu’à « ${target} » ?` : `Rétablir « ${target} » ?`)) return;
+  const result = await action('', () => window.forkline.redo(count).then(unwrap));
+  if (result?.snapshot) {
+    applySnapshot(result.snapshot);
+    toast(result.labels?.length > 1 ? `${result.labels.length} actions rétablies` : result.labels?.[0] || 'Action rétablie');
+  }
+}
+
+$('#undo').addEventListener('click', () => performUndo(1));
+$('#redo').addEventListener('click', () => performRedo(1));
+$('#undo').addEventListener('contextmenu', (event) => {
+  event.preventDefault();
+  const history = state.snapshot.undoHistory || [];
+  if (!history.length) return;
+  showSimpleContextMenu('Historique des actions à annuler', history.slice(0, 10).map((entry, index) => ({ id: `undo-${index}`, icon: '↶', label: entry.label, run: () => performUndo(index + 1) })), event.clientX, event.clientY);
+});
+$('#redo').addEventListener('contextmenu', (event) => {
+  event.preventDefault();
+  const history = state.snapshot.redoHistory || [];
+  if (!history.length) return;
+  showSimpleContextMenu('Historique des actions à rétablir', history.slice(0, 10).map((entry, index) => ({ id: `redo-${index}`, icon: '↷', label: entry.label, run: () => performRedo(index + 1) })), event.clientX, event.clientY);
+});
 $$('.nav-item').forEach((item) => item.addEventListener('click', () => setView(item.dataset.view)));
 $('#diff-action').addEventListener('click', () => toggleStage($('#diff-action').dataset.file, $('#diff-action').dataset.staged === 'true'));
 $('#stage-all').addEventListener('click', async () => {
@@ -589,25 +1654,240 @@ $('#unstage-all').addEventListener('click', async () => {
 });
 $('#commit').addEventListener('click', async () => {
   const message = $('#commit-message').value.trim();
-  const result = await action('Commit créé', () => window.forkline.commit(message).then(unwrap));
+  const amend = $('#commit-amend').checked;
+  const sign = $('#commit-sign').checked;
+  const result = await action(amend ? 'Dernier commit modifié' : 'Commit créé', () => window.forkline.commit(message, { amend, sign }).then(unwrap));
   if (result) {
     $('#commit-message').value = '';
+    $('#commit-amend').checked = false;
     applySnapshot(result.snapshot);
     setView('history');
   }
 });
+$('#commit-amend').addEventListener('change', (event) => {
+  if (event.target.checked && !$('#commit-message').value.trim()) $('#commit-message').value = state.snapshot.commits.find((commit) => commit.hash === state.snapshot.headHash)?.subject || '';
+});
 
-for (const operation of ['fetch', 'pull', 'push']) {
-  $(`#${operation}`).addEventListener('click', async () => {
-    const result = await action(`${operation[0].toUpperCase()}${operation.slice(1)} terminé`, () => window.forkline[operation]().then(unwrap));
-    if (result) applySnapshot(result.snapshot);
-  });
+for (const operation of ['pull', 'push']) {
+  $(`#${operation}`).addEventListener('click', () => executeRepositoryAction(`${operation[0].toUpperCase()}${operation.slice(1)} terminé`, () => window.forkline[operation]()));
 }
 
-$('#new-branch').addEventListener('click', () => {
+$('#pull').addEventListener('contextmenu', (event) => {
+  event.preventDefault();
+  showSimpleContextMenu('Options de Pull', [
+    { id: 'ff-only', icon: '↓', label: 'Pull fast-forward uniquement', run: () => executeRepositoryAction('Pull terminé', () => window.forkline.pull({ strategy: 'ff-only' })) },
+    { id: 'rebase', icon: '⇢', label: 'Pull avec rebase', run: () => executeRepositoryAction('Pull avec rebase terminé', () => window.forkline.pull({ strategy: 'rebase' })) },
+    { id: 'merge', icon: '↘', label: 'Pull avec merge', run: () => executeRepositoryAction('Pull avec merge terminé', () => window.forkline.pull({ strategy: 'merge' })) },
+    { id: 'from', icon: '☁', label: 'Pull depuis un remote et une branche…', run: () => pullFromRemote() },
+  ], event.clientX, event.clientY);
+});
+
+$('#push').addEventListener('contextmenu', (event) => {
+  event.preventDefault();
+  showSimpleContextMenu('Options de Push', [
+    { id: 'normal', icon: '↑', label: 'Push', run: () => executeRepositoryAction('Push terminé', () => window.forkline.push()) },
+    { id: 'tags', icon: '◇', label: 'Push avec tous les tags', run: () => executeRepositoryAction('Commits et tags publiés', () => window.forkline.push({ tags: true })) },
+    { id: 'force-lease', icon: '⇡', label: 'Force push sécurisé (with lease)', run: async () => { if (window.confirm('Réécrire la branche distante avec --force-with-lease ?')) await executeRepositoryAction('Force push sécurisé terminé', () => window.forkline.push({ forceWithLease: true })); } },
+    { id: 'to', icon: '☁', label: 'Push vers un remote…', run: () => pushToRemote() },
+  ], event.clientX, event.clientY);
+});
+
+async function pullFromRemote() {
+  const defaultRemote = state.snapshot.remotes[0]?.name || '';
+  const remote = window.prompt('Dépôt distant :', defaultRemote);
+  if (!remote?.trim()) return;
+  const branch = window.prompt('Branche distante :', state.snapshot.head);
+  if (!branch?.trim()) return;
+  const strategy = window.prompt('Stratégie : ff-only, rebase ou merge', 'ff-only')?.trim();
+  if (!strategy) return;
+  await executeRepositoryAction('Pull terminé', () => window.forkline.pull({ remote: remote.trim(), branch: branch.trim(), strategy }));
+}
+
+async function pushToRemote() {
+  const defaultRemote = state.snapshot.remotes[0]?.name || '';
+  const remote = window.prompt('Dépôt distant :', defaultRemote);
+  if (!remote?.trim()) return;
+  const branch = window.prompt('Branche locale à publier :', state.snapshot.head);
+  if (!branch?.trim()) return;
+  await executeRepositoryAction('Push terminé', () => window.forkline.push({ remote: remote.trim(), branch: branch.trim(), setUpstream: true }));
+}
+
+$('#fetch').addEventListener('click', () => executeRepositoryAction('Références distantes récupérées', () => window.forkline.fetch()));
+$('#open-terminal').addEventListener('click', () => action('', () => window.forkline.openTerminal().then(unwrap)));
+$('#toolbar-repository').addEventListener('contextmenu', (event) => {
+  event.preventDefault();
+  showSimpleContextMenu(state.snapshot.repository, [
+    { id: 'folder', icon: '↗', label: 'Ouvrir le dossier du dépôt', run: () => action('', () => window.forkline.openRepositoryFolder().then(unwrap)) },
+    { id: 'editor', icon: '⚙', label: 'Configurer l’éditeur externe…', run: () => configureExternalEditor() },
+    { id: 'patch', icon: '▣', label: 'Appliquer un patch…', run: () => executeRepositoryAction('Patch appliqué', () => window.forkline.applyPatch()) },
+    { id: 'clipboard', icon: '▤', label: 'Appliquer le patch du presse-papiers', run: () => applyPatchFromClipboard() },
+  ], event.clientX, event.clientY);
+});
+
+async function configureExternalEditor() {
+  const command = window.prompt('Commande de l’éditeur externe (laisser vide pour utiliser l’application système) :', state.externalEditorCommand || 'phpstorm');
+  if (command === null) return;
+  const saved = await action('', () => window.forkline.setExternalEditor(command.trim()).then(unwrap));
+  if (saved === null) return;
+  state.externalEditorCommand = saved;
+  toast(saved ? 'Éditeur externe configuré' : 'Application système utilisée par défaut');
+}
+
+async function applyPatchFromClipboard() {
+  let patch;
+  try {
+    patch = await navigator.clipboard.readText();
+  } catch {
+    return toast('Impossible d’accéder au presse-papiers.', true);
+  }
+  if (!patch.trim()) return toast('Le presse-papiers ne contient aucun patch.', true);
+  return executeRepositoryAction('Patch du presse-papiers appliqué', () => window.forkline.applyPatchContent(patch));
+}
+
+function openBranchDialog() {
   $('#branch-name').value = '';
   $('#branch-dialog').showModal();
   setTimeout(() => $('#branch-name').focus(), 50);
+}
+
+$('#new-branch').addEventListener('click', openBranchDialog);
+$('#toolbar-new-branch').addEventListener('click', openBranchDialog);
+$('#new-tag').addEventListener('click', () => createTagAt(state.snapshot.headHash, false));
+$('#new-remote').addEventListener('click', async () => {
+  const name = window.prompt('Nom du dépôt distant :', 'origin');
+  if (!name?.trim()) return;
+  const url = window.prompt('Adresse du dépôt distant :');
+  if (url?.trim()) await executeRepositoryAction(`Dépôt distant ${name.trim()} ajouté`, () => window.forkline.addRemote(name.trim(), url.trim()));
+});
+$('#new-submodule').addEventListener('click', async () => {
+  const url = window.prompt('Adresse HTTPS, SSH ou chemin du sous-module :');
+  if (!url?.trim()) return;
+  const inferred = url.trim().replace(/[\\/]$/, '').split(/[\\/]/).pop().replace(/\.git$/, '') || 'module';
+  const submodulePath = window.prompt('Chemin du sous-module dans le dépôt :', `modules/${inferred}`);
+  if (!submodulePath?.trim()) return;
+  const branch = window.prompt('Branche à suivre (optionnel) :', '') || '';
+  await executeRepositoryAction('Sous-module ajouté', () => window.forkline.addSubmodule(url.trim(), submodulePath.trim(), branch.trim()));
+});
+$('#new-worktree').addEventListener('click', async () => {
+  const branch = window.prompt('Branche du worktree (existante ou nouvelle) :');
+  if (!branch?.trim()) return;
+  const exists = state.snapshot.branches.some((candidate) => !candidate.remote && candidate.name === branch.trim());
+  const directoryName = window.prompt('Nom du dossier du worktree :', branch.trim().split('/').pop());
+  if (!directoryName?.trim()) return;
+  await executeRepositoryAction('Worktree créé', () => window.forkline.addWorktree({ branch: branch.trim(), createBranch: !exists, startPoint: state.snapshot.headHash, directoryName: directoryName.trim() }));
+});
+$('#new-lfs-pattern').addEventListener('click', async () => {
+  if (!state.snapshot.lfs?.available) return;
+  const pattern = window.prompt('Motif de fichiers à suivre avec Git LFS :', '*.bin');
+  if (pattern?.trim()) await executeRepositoryAction('Motif LFS ajouté', () => window.forkline.trackLfs(pattern.trim()));
+});
+$('#git-identity').addEventListener('click', () => {
+  const identity = state.snapshot.identity || {};
+  $('#identity-name').value = identity.name || '';
+  $('#identity-email').value = identity.email || '';
+  $('#identity-scope').value = identity.scope || 'local';
+  $('#identity-gpg-sign').checked = Boolean(state.snapshot.commitPreferences?.gpgSign);
+  $('#identity-signing-key').value = state.snapshot.commitPreferences?.signingKey || '';
+  const hooks = state.snapshot.commitPreferences?.hooks || [];
+  $('#identity-hooks').textContent = hooks.length ? `Hooks actifs : ${hooks.join(', ')}` : 'Aucun hook Git actif détecté.';
+  renderGitProfileOptions();
+  const assignedProfile = state.gitProfiles.find((entry) => entry.id === state.assignedProfileId);
+  $('#identity-path-pattern').value = assignedProfile?.pathPattern || '';
+  $('#identity-remote-pattern').value = assignedProfile?.remotePattern || '';
+  $('#identity-dialog').showModal();
+});
+$('#identity-profile').addEventListener('change', () => {
+  const profile = state.gitProfiles.find((entry) => entry.id === $('#identity-profile').value);
+  if (profile) fillIdentityFromProfile(profile);
+  else {
+    $('#identity-path-pattern').value = '';
+    $('#identity-remote-pattern').value = '';
+  }
+  $('#delete-identity-profile').disabled = !profile;
+});
+$('#save-identity-profile').addEventListener('click', async () => {
+  const label = window.prompt('Nom du profil :', state.gitProfiles.find((entry) => entry.id === $('#identity-profile').value)?.label || 'Profil Git');
+  if (!label?.trim()) return;
+  const saved = await action('', () => window.forkline.saveGitProfile({ id: $('#identity-profile').value || undefined, label: label.trim(), name: $('#identity-name').value, email: $('#identity-email').value, gpgSign: $('#identity-gpg-sign').checked, signingKey: $('#identity-signing-key').value, pathPattern: $('#identity-path-pattern').value, remotePattern: $('#identity-remote-pattern').value }).then(unwrap));
+  if (!saved) return;
+  await refreshGitProfiles();
+  $('#identity-profile').value = saved.id;
+  const snapshot = await action('Profil enregistré et appliqué', () => window.forkline.applyGitProfile(saved.id, true).then(unwrap));
+  if (snapshot) applySnapshot(snapshot);
+});
+$('#apply-identity-profile').addEventListener('click', async () => {
+  const profileId = $('#identity-profile').value;
+  if (!profileId) return toast('Sélectionnez un profil enregistré.', true);
+  const snapshot = await action('Profil appliqué à ce dépôt', () => window.forkline.applyGitProfile(profileId, true).then(unwrap));
+  if (snapshot) {
+    applySnapshot(snapshot);
+    await refreshGitProfiles();
+  }
+});
+$('#delete-identity-profile').addEventListener('click', async () => {
+  const profileId = $('#identity-profile').value;
+  const profile = state.gitProfiles.find((entry) => entry.id === profileId);
+  if (!profile || !window.confirm(`Supprimer le profil ${profile.label} ?`)) return;
+  const removed = await action('Profil supprimé', () => window.forkline.deleteGitProfile(profileId).then(unwrap));
+  if (removed) await refreshGitProfiles();
+});
+
+function openStashDialog() {
+  const files = state.snapshot?.status.files || [];
+  if (!files.length) {
+    toast('Aucune modification à mettre de côté.', true);
+    return;
+  }
+  $('#stash-message').value = '';
+  $('#stash-include-untracked').checked = files.some((file) => file.untracked);
+  $('#stash-keep-index').checked = false;
+  $('#stash-dialog-files').innerHTML = files.map((file) => `
+    <label class="stash-file-option"><input type="checkbox" value="${escapeHtml(file.path)}" checked><span class="status-badge${file.untracked ? ' untracked' : ''}">${escapeHtml(statusLabel(file))}</span><span title="${escapeHtml(file.path)}">${escapeHtml(file.path)}</span></label>`).join('');
+  $('#stash-dialog').showModal();
+  setTimeout(() => $('#stash-message').focus(), 50);
+}
+
+$('#new-stash').addEventListener('click', openStashDialog);
+$('#toolbar-stash').addEventListener('click', openStashDialog);
+$('#toolbar-pop-stash').addEventListener('click', () => {
+  const latest = state.snapshot?.stashes?.[0];
+  if (latest) runStashAction('pop', latest.ref);
+});
+$('#confirm-stash').addEventListener('click', async (event) => {
+  event.preventDefault();
+  const files = $$('#stash-dialog-files input:checked').map((input) => input.value);
+  if (!files.length) {
+    toast('Sélectionnez au moins un fichier.', true);
+    return;
+  }
+  const options = {
+    message: $('#stash-message').value.trim(),
+    includeUntracked: $('#stash-include-untracked').checked,
+    keepIndex: $('#stash-keep-index').checked,
+    files,
+  };
+  const result = await action('', () => window.forkline.createStash(options).then(unwrap));
+  if (!result) return;
+  $('#stash-dialog').close();
+  applySnapshot(result.snapshot);
+  renderCommits();
+  toast('Stash créé');
+});
+
+$('#confirm-rebase').addEventListener('click', async (event) => {
+  event.preventDefault();
+  const firstKept = state.rebasePlan.find((commit) => commit.action !== 'drop');
+  if (!firstKept || !['pick', 'reword'].includes(firstKept.action)) return toast('Le premier commit conservé doit être conservé ou renommé.', true);
+  if (!window.confirm('Démarrer ce rebase interactif et réécrire l’historique local ?')) return;
+  $('#rebase-dialog').close();
+  await executeRepositoryAction('Rebase interactif terminé', () => window.forkline.interactiveRebase(state.rebaseBaseHash, state.rebasePlan.map(({ hash, action: rebaseAction, message }) => ({ hash, action: rebaseAction, message }))));
+});
+$('#confirm-identity').addEventListener('click', async (event) => {
+  event.preventDefault();
+  const identityResult = await executeRepositoryAction('', () => window.forkline.setIdentity($('#identity-name').value, $('#identity-email').value, $('#identity-scope').value));
+  if (!identityResult) return;
+  const result = await executeRepositoryAction('Identité et signature Git enregistrées', () => window.forkline.setCommitPreferences({ scope: $('#identity-scope').value, gpgSign: $('#identity-gpg-sign').checked, signingKey: $('#identity-signing-key').value }));
+  if (result) $('#identity-dialog').close();
 });
 $('#confirm-branch').addEventListener('click', async (event) => {
   event.preventDefault();

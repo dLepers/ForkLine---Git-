@@ -22,7 +22,7 @@
       <p class="eyebrow">CLIENT GIT LOCAL</p>
       <h1>Suivez chaque ligne<br>de votre histoire.</h1>
       <p class="welcome-copy">Dépôts publics, privés ou auto-hébergés.<br>Vos identifiants restent gérés par Git.</p>
-      <button id="open-repo-welcome" class="button button-primary">Ouvrir un dépôt</button>
+      <div class="welcome-actions"><button id="open-repo-welcome" class="button button-primary">Ouvrir un dépôt</button><button id="clone-repo-welcome" class="button">Cloner un dépôt</button><button id="init-repo-welcome" class="button">Initialiser un dépôt</button></div>
       <p id="restore-status" class="restore-status">Recherche du dernier dépôt…</p>
     </main>
 
@@ -45,27 +45,68 @@
             <div id="branches" class="branch-list"></div>
           </section>
           <section>
-            <p class="section-title">BRANCHES DISTANTES</p>
+            <div class="section-heading"><p class="section-title">STASHS</p><button id="new-stash" title="Créer un stash">＋</button></div>
+            <div id="stashes" class="stash-list"></div>
+          </section>
+          <section>
+            <div class="section-heading"><p class="section-title">BRANCHES DISTANTES</p><button id="new-remote" title="Ajouter un dépôt distant">＋</button></div>
             <div id="remotes" class="remote-list"></div>
+          </section>
+          <section>
+            <div class="section-heading"><p class="section-title">TAGS</p><button id="new-tag" title="Créer un tag">＋</button></div>
+            <div id="tags" class="tag-list"></div>
+          </section>
+          <section>
+            <div class="section-heading"><p class="section-title">SOUS-MODULES</p><button id="new-submodule" title="Ajouter un sous-module">＋</button></div>
+            <div id="submodules" class="resource-list"></div>
+          </section>
+          <section>
+            <div class="section-heading"><p class="section-title">WORKTREES</p><button id="new-worktree" title="Ajouter un worktree">＋</button></div>
+            <div id="worktrees" class="resource-list"></div>
+          </section>
+          <section>
+            <p class="section-title">GIT FLOW</p>
+            <div id="git-flow" class="git-flow-panel"></div>
+          </section>
+          <section>
+            <div class="section-heading"><p class="section-title">GIT LFS</p><button id="new-lfs-pattern" title="Suivre un motif avec Git LFS">＋</button></div>
+            <div id="git-lfs" class="resource-list"></div>
+          </section>
+          <section>
+            <p class="section-title">IDENTITÉ GIT</p>
+            <button id="git-identity" type="button" class="identity-item"><span>◎</span><span><strong id="git-identity-name">Non configurée</strong><small id="git-identity-email">Définir un nom et un e-mail</small></span></button>
           </section>
         </nav>
       </aside>
 
       <section class="content">
         <header class="toolbar">
-          <div>
-            <p id="view-kicker" class="eyebrow">CHRONOLOGIE</p>
-            <h2 id="view-title">Historique du dépôt</h2>
+          <div class="toolbar-context">
+            <button id="toolbar-repository" class="toolbar-context-button" type="button" title="Changer de dépôt">
+              <small>DÉPÔT</small><strong id="toolbar-repo-name">—</strong><span>⌄</span>
+            </button>
+            <i class="toolbar-context-divider"></i>
+            <div class="toolbar-context-button branch-context-display">
+              <small>BRANCHE</small><strong id="toolbar-branch-name">—</strong><span>⌄</span>
+            </div>
+            <div class="hidden"><p id="view-kicker">CHRONOLOGIE</p><h2 id="view-title">Historique du dépôt</h2></div>
           </div>
           <div class="toolbar-actions">
-            <button id="fetch" class="tool-button" title="Récupérer les références">↓<span>Fetch</span></button>
-            <button id="pull" class="tool-button" title="Récupérer et avancer">↙<span>Pull</span></button>
-            <button id="push" class="tool-button" title="Publier les commits">↗<span>Push</span></button>
-            <button id="refresh" class="icon-button" title="Actualiser">↻</button>
+            <button id="undo" class="tool-button" type="button" title="Aucune action à annuler" disabled>↶<span>Undo</span></button>
+            <button id="redo" class="tool-button" type="button" title="Aucune action à rétablir" disabled>↷<span>Redo</span></button>
+            <button id="fetch" class="tool-button" type="button" title="Récupérer les références distantes">↻<span>Fetch</span></button>
+            <button id="pull" class="tool-button" type="button" title="Récupérer et avancer">↓<span>Pull</span></button>
+            <button id="push" class="tool-button" type="button" title="Publier les commits">↑<span>Push</span></button>
+            <button id="toolbar-new-branch" class="tool-button" type="button" title="Créer une branche">⑂<span>Branch</span></button>
+            <button id="toolbar-stash" class="tool-button" type="button" title="Mettre les modifications de côté">♨<span>Stash</span></button>
+            <button id="toolbar-pop-stash" class="tool-button" type="button" title="Appliquer et supprimer le dernier stash" disabled>♨<span>Pop</span></button>
+            <button id="open-terminal" class="tool-button terminal-button" type="button" title="Ouvrir un terminal dans le dépôt">›_<span>Terminal</span></button>
+            <button id="refresh" class="icon-button" type="button" title="Actualiser">↻</button>
           </div>
         </header>
 
         <div id="history-view" class="view history-view">
+          <div class="history-tools"><span>⌕</span><input id="history-search" type="search" placeholder="Texte, author:, file:, after:, before:, branch:…" autocomplete="off" title="Exemple : correction author:Daisy file:src/app.js after:2026-01-01"><button id="clear-history-search" type="button" title="Effacer la recherche">×</button></div>
           <div class="history-head"><span>BRANCHE / TAG · GRAPHE</span><span>MESSAGE DU COMMIT</span><span>AUTEUR</span><span>DATE</span></div>
           <div id="commits" class="commit-list"></div>
         </div>
@@ -80,6 +121,8 @@
           <div class="commit-box">
             <label for="commit-message">MESSAGE DU COMMIT</label>
             <textarea id="commit-message" rows="4" placeholder="Décrire clairement ce qui change…"></textarea>
+            <label class="commit-option"><input id="commit-amend" type="checkbox"><span>Modifier le dernier commit</span></label>
+            <label class="commit-option"><input id="commit-sign" type="checkbox"><span>Signer ce commit</span></label>
             <button id="commit" class="button button-primary">Créer le commit</button>
           </div>
         </div>
@@ -93,6 +136,7 @@
         </div>
         <div id="commit-detail" class="commit-detail hidden"></div>
         <div id="worktree-detail" class="worktree-detail hidden"></div>
+        <div id="stash-detail" class="stash-detail hidden"></div>
         <div id="diff-detail" class="diff-detail hidden">
           <header><div><p class="eyebrow">DIFFÉRENCE</p><h3 id="diff-file"></h3></div><button id="diff-action" class="button button-small"></button></header>
           <pre id="diff-content"></pre>
@@ -108,6 +152,44 @@
         <label for="branch-name">Nom de la branche</label>
         <input id="branch-name" autocomplete="off" placeholder="feature/ma-branche">
         <div class="dialog-actions"><button value="cancel" class="button">Annuler</button><button id="confirm-branch" value="default" class="button button-primary">Créer et basculer</button></div>
+      </form>
+    </dialog>
+    <dialog id="stash-dialog">
+      <form method="dialog">
+        <p class="eyebrow">NOUVEAU STASH</p>
+        <h3>Mettre des modifications de côté</h3>
+        <label for="stash-message">Message optionnel</label>
+        <input id="stash-message" autocomplete="off" placeholder="Travail en cours…">
+        <label class="dialog-check"><input id="stash-include-untracked" type="checkbox"><span>Inclure les fichiers non suivis</span></label>
+        <label class="dialog-check"><input id="stash-keep-index" type="checkbox"><span>Garder les modifications indexées</span></label>
+        <fieldset class="stash-file-picker"><legend>Fichiers à inclure</legend><div id="stash-dialog-files"></div></fieldset>
+        <div class="dialog-actions"><button value="cancel" class="button">Annuler</button><button id="confirm-stash" value="default" class="button button-primary">Créer le stash</button></div>
+      </form>
+    </dialog>
+    <dialog id="rebase-dialog" class="rebase-dialog">
+      <form method="dialog">
+        <p class="eyebrow">REBASE INTERACTIF</p>
+        <h3>Réorganiser les commits</h3>
+        <p class="dialog-help">L’ordre va du plus ancien au plus récent. Cette opération réécrit l’historique de la branche active.</p>
+        <div id="rebase-plan" class="rebase-plan"></div>
+        <div class="dialog-actions"><button value="cancel" class="button">Annuler</button><button id="confirm-rebase" value="default" class="button button-primary">Démarrer le rebase</button></div>
+      </form>
+    </dialog>
+    <dialog id="identity-dialog">
+      <form method="dialog">
+        <p class="eyebrow">IDENTITÉ GIT</p><h3>Configurer l’auteur des commits</h3>
+        <label for="identity-profile">Profil enregistré</label><select id="identity-profile"><option value="">Configuration actuelle</option></select>
+        <div class="profile-actions"><button id="apply-identity-profile" type="button" class="button button-small">Appliquer au dépôt</button><button id="save-identity-profile" type="button" class="button button-small">Enregistrer comme profil</button><button id="delete-identity-profile" type="button" class="button button-small danger">Supprimer</button></div>
+        <label for="identity-name">Nom</label><input id="identity-name" autocomplete="name">
+        <label for="identity-email">Adresse e-mail</label><input id="identity-email" type="email" autocomplete="email">
+        <label for="identity-scope">Portée</label><select id="identity-scope"><option value="local">Ce dépôt uniquement</option><option value="global">Tous les dépôts</option></select>
+        <label class="dialog-check"><input id="identity-gpg-sign" type="checkbox"><span>Signer les commits par défaut</span></label>
+        <label for="identity-signing-key">Clé de signature GPG/SSH</label><input id="identity-signing-key" autocomplete="off" placeholder="Identifiant de clé optionnel">
+        <label for="identity-path-pattern">Appliquer automatiquement aux chemins</label><input id="identity-path-pattern" autocomplete="off" placeholder="/home/daisy/projets/cead-*">
+        <label for="identity-remote-pattern">Appliquer automatiquement aux dépôts distants</label><input id="identity-remote-pattern" autocomplete="off" placeholder="*gitlab.example.com/equipe/*">
+        <p id="identity-profile-match" class="dialog-help">Les caractères * et ? sont acceptés. Une affectation explicite au dépôt reste prioritaire.</p>
+        <p id="identity-hooks" class="dialog-help"></p>
+        <div class="dialog-actions"><button value="cancel" class="button">Annuler</button><button id="confirm-identity" value="default" class="button button-primary">Enregistrer</button></div>
       </form>
     </dialog>
     <script src="graph-layout.js"></script>
