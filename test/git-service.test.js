@@ -269,6 +269,50 @@ test('checks out a commit in detached HEAD mode', async () => {
 
   assert.equal((await command(['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim(), 'HEAD');
   assert.equal((await git.snapshot()).headHash, initialHash);
+  await git.switchBranch('main');
+  assert.equal(await git.head(), 'main');
+  assert.equal((await git.snapshot()).headHash, initialHash);
+});
+
+test('automatically stashes pending files before checking out a commit', async () => {
+  const initialHash = (await git.snapshot()).headHash;
+  await fs.writeFile(path.join(repository, 'committed.txt'), 'Committed\n');
+  await git.stage(['committed.txt']);
+  await git.commit('Second commit');
+
+  await fs.appendFile(path.join(repository, 'README.md'), 'Pending tracked change\n');
+  await git.stage(['README.md']);
+  await fs.appendFile(path.join(repository, 'README.md'), 'Pending unstaged change\n');
+  await fs.writeFile(path.join(repository, 'pending.txt'), 'Pending untracked file\n');
+  await git.checkoutCommit(initialHash);
+
+  const snapshot = await git.snapshot();
+  assert.equal((await command(['rev-parse', '--abbrev-ref', 'HEAD'])).stdout.trim(), 'HEAD');
+  assert.equal(snapshot.headHash, initialHash);
+  assert.equal(snapshot.status.files.length, 0);
+  assert.equal(snapshot.stashes.length, 1);
+  assert.equal(snapshot.stashes[0].baseHash, (await command(['rev-parse', 'main'])).stdout.trim());
+  assert.equal(snapshot.stashes[0].message, `Auto stash before checking out "${initialHash.slice(0, 7)}"`);
+  assert.deepEqual(snapshot.stashes[0].files.sort(), ['README.md', 'pending.txt']);
+  assert.match((await command(['show', 'stash@{0}:README.md'])).stdout, /Pending unstaged change/);
+  assert.doesNotMatch((await command(['show', 'stash@{0}\^2:README.md'])).stdout, /Pending unstaged change/);
+  assert.match((await command(['show', 'stash@{0}\^2:README.md'])).stdout, /Pending tracked change/);
+});
+
+test('automatically stashes pending files before switching branches', async () => {
+  const initialHash = (await git.snapshot()).headHash;
+  await git.createBranch('target', initialHash);
+  await git.switchBranch('main');
+  await fs.appendFile(path.join(repository, 'README.md'), 'Pending branch change\n');
+
+  await git.switchBranch('target');
+
+  const snapshot = await git.snapshot();
+  assert.equal(snapshot.head, 'target');
+  assert.equal(snapshot.status.files.length, 0);
+  assert.equal(snapshot.stashes.length, 1);
+  assert.equal(snapshot.stashes[0].message, 'Auto stash before checking out "target"');
+  assert.deepEqual(snapshot.stashes[0].files, ['README.md']);
 });
 
 test('cherry-picks and reverts a commit', async () => {

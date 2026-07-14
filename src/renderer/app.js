@@ -214,8 +214,13 @@ function showBranchContextMenu(branchName, clientX, clientY) {
 function commitContextActions(commit) {
   const childCount = state.snapshot.commits.filter((candidate) => candidate.parents.includes(commit.hash)).length;
   const remoteName = state.snapshot.remotes[0]?.name;
+  const localBranches = state.snapshot.branches.filter((branch) => !branch.remote && branch.hash === commit.hash);
+  const branchCheckoutLabel = localBranches.length === 1
+    ? `Basculer sur la branche ${localBranches[0].name}`
+    : 'Basculer sur une branche pointant ici';
   return [
-    { id: 'checkout', icon: '✓', label: 'Checkout sur ce commit' },
+    ...(localBranches.length ? [{ id: 'checkout-branch', icon: '✓', label: branchCheckoutLabel, disabled: localBranches.length === 1 && localBranches[0].current, disabledReason: 'Cette branche est déjà active.' }] : []),
+    { id: 'checkout', icon: '○', label: 'Checkout sur ce commit (HEAD détaché)' },
     { id: 'create-branch', icon: '＋', label: 'Créer une branche ici' },
     { id: 'cherry-pick', icon: '⌁', label: 'Cherry-pick du commit' },
     { id: 'reset', icon: '↶', label: `Réinitialiser ${state.snapshot.head} sur ce commit`, submenu: true },
@@ -378,8 +383,20 @@ async function runBranchContextAction(operation, branchName) {
 }
 
 async function runCommitContextAction(operation, commit) {
+  if (operation === 'checkout-branch') {
+    const localBranches = state.snapshot.branches.filter((branch) => !branch.remote && branch.hash === commit.hash);
+    if (!localBranches.length) return toast('Aucune branche locale ne pointe sur ce commit.', true);
+    let branchName = localBranches[0].name;
+    if (localBranches.length > 1) {
+      branchName = window.prompt(`Plusieurs branches pointent sur ${commit.shortHash}. Branche à activer :\n${localBranches.map((branch) => branch.name).join(', ')}`, branchName)?.trim();
+      if (!branchName) return;
+      if (!localBranches.some((branch) => branch.name === branchName)) return toast('Cette branche ne pointe pas sur le commit sélectionné.', true);
+    }
+    await switchBranch(branchName);
+    return;
+  }
   if (operation === 'checkout') {
-    if (window.confirm(`Passer en HEAD détaché sur ${commit.shortHash} ?`)) await executeRepositoryAction(`Commit ${commit.shortHash} activé`, () => window.forkline.checkoutCommit(commit.hash));
+    if (window.confirm(`Passer en HEAD détaché sur ${commit.shortHash} ?`)) await executeRepositoryAction(`HEAD détaché sur ${commit.shortHash}`, () => window.forkline.checkoutCommit(commit.hash));
     return;
   }
   if (operation === 'create-branch') {
@@ -868,20 +885,30 @@ function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTre
   </svg>`;
 }
 
-function renderStashGraphRow(stash, baseLane, stashLane, laneColor, laneCount, graphWidth) {
+function renderStashGraphRow(stash, row, stashLane, laneCount, graphWidth) {
   const spacing = 16;
   const laneWidth = graphLaneWidth(laneCount);
   const width = graphWidth || laneWidth;
   const laneOffset = Math.max(0, width - laneWidth);
+  const baseLane = row.lane;
   const baseX = laneOffset + 6 + baseLane * spacing;
   const centerX = laneOffset + 6 + stashLane * spacing;
   const centerY = 22;
-  const color = graphColor(laneColor);
-  const connection = stashLane === baseLane
-    ? `<path class="stash-continuation" d="M ${baseX} 0 V 44" stroke="${color}"/>`
-    : `<path class="stash-main-continuation" d="M ${baseX} 0 V 44" stroke="${color}"/><path class="stash-side-connection" d="M ${centerX} ${centerY} C ${centerX} 34, ${baseX} 32, ${baseX} 44" stroke="${color}"/>`;
+  const color = graphColor(row.laneColor);
+  const activeLanes = row.before.map((hash, lane) => {
+    if (!hash) return '';
+    const laneX = laneOffset + 6 + lane * spacing;
+    const laneStroke = graphColor(row.beforeColors[lane]);
+    if (lane === stashLane) {
+      return `<path class="stash-upper-stem" d="M ${laneX} 0 V ${centerY}" stroke="${laneStroke}"/><path class="stash-lane-continuation" d="M ${laneX} ${centerY} V 44" stroke="${laneStroke}"/>`;
+    }
+    return `<path class="stash-lane-continuation" d="M ${laneX} 0 V 44" stroke="${laneStroke}"/>`;
+  }).join('');
+  const sideConnection = stashLane === baseLane
+    ? ''
+    : `<path class="stash-side-connection" d="M ${centerX} ${centerY} C ${centerX} 34, ${baseX} 32, ${baseX} 44" stroke="${color}"/>`;
   return `<svg class="commit-graph stash-graph" width="${width}" height="44" viewBox="0 0 ${width} 44" aria-hidden="true">
-    ${connection}
+    ${activeLanes}${sideConnection}
     <rect class="stash-node-halo" x="${centerX - 7}" y="${centerY - 7}" width="14" height="14" stroke="${color}"/>
     <path class="stash-node-mark" d="M ${centerX - 4} ${centerY - 3} H ${centerX + 4} V ${centerY + 4} H ${centerX - 4} Z M ${centerX - 2} ${centerY} H ${centerX + 2}" stroke="${color}"/>
   </svg>`;
@@ -1051,7 +1078,7 @@ function renderCommits() {
       const isBesideWip = state.snapshot.status.files.length > 0 && stash.baseHash === state.snapshot.headHash;
       const stashLane = isBesideWip ? graph.laneCount : graph.rows[index].lane;
       rows.push(`<button class="commit-row stash-row" data-stash-ref="${escapeHtml(stash.ref)}">
-        ${renderStashGraphRow(stash, graph.rows[index].lane, stashLane, graph.rows[index].laneColor, displayLaneCount, graphWidth)}
+        ${renderStashGraphRow(stash, graph.rows[index], stashLane, displayLaneCount, graphWidth)}
         <span class="commit-main"><span class="commit-subject">${escapeHtml(stash.message)}</span><span class="commit-meta">${escapeHtml(stashCommit?.shortHash || stash.hash.slice(0, 7))}</span></span>
         <span class="commit-author">${escapeHtml(stashCommit?.author || '')}</span>
         <span class="commit-date" title="${escapeHtml(new Date(stash.date).toLocaleString('fr'))}">${relativeTime(stash.date)}</span>

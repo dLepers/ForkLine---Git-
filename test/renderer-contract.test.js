@@ -40,3 +40,19 @@ test('all preload IPC invocations have a main-process handler', () => {
 
   assert.deepEqual(missing, []);
 });
+
+test('commit checkout distinguishes branch switching from detached HEAD', () => {
+  assert.match(renderer, /const branchCheckoutLabel =[\s\S]*Basculer sur une branche pointant ici/);
+  assert.match(renderer, /id: 'checkout-branch'.*label: branchCheckoutLabel/);
+  assert.match(renderer, /id: 'checkout'.*Checkout sur ce commit \(HEAD détaché\)/);
+  assert.match(renderer, /operation === 'checkout-branch'[\s\S]*await switchBranch\(branchName\)/);
+  assert.match(renderer, /operation === 'checkout'[\s\S]*window\.forkline\.checkoutCommit\(commit\.hash\)/);
+});
+
+test('stash rows preserve every active graph lane', () => {
+  const stashRenderer = renderer.match(/function renderStashGraphRow[\s\S]*?(?=\nfunction renderWorkingTreeRow)/)?.[0] || '';
+  assert.match(stashRenderer, /row\.before\.map/);
+  assert.match(stashRenderer, /row\.beforeColors\[lane\]/);
+  assert.match(stashRenderer, /stash-lane-continuation/);
+  assert.match(stashRenderer, /stash-upper-stem/);
+});

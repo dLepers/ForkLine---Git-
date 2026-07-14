@@ -947,7 +947,7 @@ class GitService {
 
   async switchBranch(name) {
     await this.validateBranchName(name, true);
-    return this.run(['switch', name]);
+    return this.checkoutWithAutoStash(['switch', name], name);
   }
 
   async createBranch(name, startPoint = null) {
@@ -958,7 +958,41 @@ class GitService {
 
   async checkoutCommit(hash) {
     await this.validateRevision(hash);
-    return this.run(['switch', '--detach', hash]);
+    return this.checkoutWithAutoStash(['switch', '--detach', hash], hash.slice(0, 7));
+  }
+
+  async checkoutWithAutoStash(args, target) {
+    const status = await this.status();
+    if (status.files.some((file) => file.conflicted)) {
+      throw new GitError('Des conflits doivent être résolus avant de changer de branche ou de commit.');
+    }
+
+    let autoStashHash = null;
+    if (status.files.length) {
+      await this.createStash({
+        message: `Auto stash before checking out "${target}"`,
+        includeUntracked: true,
+      });
+      autoStashHash = (await this.run(['rev-parse', 'refs/stash'])).trim();
+    }
+
+    try {
+      return await this.run(args);
+    } catch (checkoutError) {
+      if (!autoStashHash) throw checkoutError;
+
+      const stash = (await this.stashes()).find((entry) => entry.hash === autoStashHash);
+      if (!stash) throw checkoutError;
+      try {
+        await this.restoreStash(stash.ref, 'pop');
+      } catch (restoreError) {
+        throw new GitError(
+          checkoutError.message,
+          `${checkoutError.details || ''}\nLe checkout a échoué et le stash automatique n’a pas pu être restauré. Il est conservé sous ${stash.ref}.\n${restoreError.details || restoreError.message}`.trim(),
+        );
+      }
+      throw checkoutError;
+    }
   }
 
   async mergeBranch(name) {

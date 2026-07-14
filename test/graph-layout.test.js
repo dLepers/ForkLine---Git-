@@ -78,3 +78,23 @@ test('does not expose a working tree node when the worktree is clean', () => {
 
   assert.equal(graph.workingTreeNode, null);
 });
+
+test('keeps detached HEAD separate from the branch that owns an auto stash', () => {
+  const graph = layoutCommitGraph([
+    { hash: 'master-tip', parents: ['middle'] },
+    { hash: 'middle', parents: ['detached-head'] },
+    { hash: 'detached-head', parents: ['root'] },
+    { hash: 'root', parents: [] },
+  ], {
+    headHash: 'detached-head',
+    branches: [
+      { name: '(HEAD detached at detached)', hash: 'detached-head' },
+      { name: 'master', hash: 'master-tip' },
+    ],
+  });
+
+  assert.equal(graph.laneCount, 2);
+  assert.deepEqual(graph.rows.map((row) => row.lane), [1, 1, 0, 0]);
+  assert.deepEqual(graph.rows[0].before, ['detached-head', 'master-tip']);
+  assert.deepEqual(graph.rows[1].connections.map(({ from, to }) => [from, to]), [[1, 0]]);
+});
