@@ -56,3 +56,17 @@ test('stash rows preserve every active graph lane', () => {
   assert.match(stashRenderer, /stash-lane-continuation/);
   assert.match(stashRenderer, /stash-upper-stem/);
 });
+
+test('branch context actions follow the selected branch state and update graph visibility', () => {
+  const branchMenu = renderer.match(/function branchContextActions[\s\S]*?(?=\nfunction closeBranchContextMenu)/)?.[0] || '';
+  assert.match(branchMenu, /disabled: sameBranch/);
+  assert.match(branchMenu, /canFastForward/);
+  assert.match(branchMenu, /id: 'interactive-rebase'/);
+  assert.match(branchMenu, /id: 'delete-with-remote'/);
+  assert.match(branchMenu, /id: 'solo'/);
+  assert.match(branchMenu, /id: 'hide'/);
+  assert.match(renderer, /operation === 'solo'[\s\S]*renderBranches\(\);[\s\S]*renderCommits\(\)/);
+  assert.match(renderer, /operation === 'hide'[\s\S]*saveHiddenBranchNames\(\);[\s\S]*renderCommits\(\)/);
+  assert.match(renderer, /data-graph-branch/);
+  assert.match(renderer, /showBranchContextMenu\(label\.dataset\.graphBranch/);
+});

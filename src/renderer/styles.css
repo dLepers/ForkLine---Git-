@@ -77,6 +77,9 @@ button { cursor: pointer; }
 .branch-symbol::after { content: ""; position: absolute; left: 4px; top: 3px; width: 8px; height: 7px; border: 2px solid #6c7169; border-left: 0; border-bottom: 0; border-radius: 0 7px 0 0; }
 .branch-symbol i { position: absolute; left: 0; top: 0; width: 8px; height: 8px; border: 2px solid #6c7169; border-radius: 50%; background: var(--ink-soft); }
 .branch-item.current { color: #fff; font-weight: 700; background: rgba(79,140,255,.12); }
+.branch-item.solo { box-shadow: inset 2px 0 var(--branch-color, #8b7cf6); background: rgba(139,124,246,.1); }
+.branch-visibility-action { width: 100%; padding: 7px 9px; border: 0; color: #8ea9d6; background: transparent; text-align: left; font-size: 11px; }
+.branch-visibility-action:hover { color: #c0d4f4; background: rgba(79,140,255,.08); }
 .branch-current { width: 14px; flex: 0 0 14px; color: var(--branch-color, var(--accent)); font-size: 15px; font-weight: 800; line-height: 1; text-align: center; }
 .branch-item .branch-symbol::before, .branch-item .branch-symbol::after { background: var(--branch-color, #6c7169); border-color: var(--branch-color, #6c7169); }
 .branch-item .branch-symbol i { border-color: var(--branch-color, #6c7169); background: var(--branch-color, var(--ink-soft)); }
@@ -226,6 +229,7 @@ button { cursor: pointer; }
 .branch-labels text { letter-spacing: .01em; }
 .branch-labels rect { fill-opacity: .12; stroke-width: 1.2; }
 .branch-label-group { pointer-events: none; }
+.branch-label[data-graph-branch] { pointer-events: all; cursor: context-menu; }
 .branch-label-group text { letter-spacing: .01em; }
 .branch-label-group rect { fill-opacity: .16; stroke-width: 1; }
 .commit-node-halo { fill: #0e1217; stroke: rgba(255,255,255,.2); stroke-width: 1; }

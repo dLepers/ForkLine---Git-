@@ -390,6 +390,7 @@ app.whenReady().then(() => {
   for (const [channel, operation] of [
     ['merge-branch', (value) => git.mergeBranch(value)],
     ['rebase-branch', (value) => git.rebaseBranch(value)],
+    ['fast-forward-branch', (value) => git.fastForwardBranch(value)],
     ['cherry-pick', (value) => git.cherryPick(value)],
     ['revert-commit', (value) => git.revertCommit(value)],
   ]) {
@@ -401,6 +402,7 @@ app.whenReady().then(() => {
   handle('repository:reset-commit', async (hash, mode) => (await repositoryWatcher.mutate(() => git.resetToCommit(hash, mode))).snapshot);
   handle('repository:rename-branch', async (oldName, newName) => (await repositoryWatcher.mutate(() => git.renameBranch(oldName, newName))).snapshot);
   handle('repository:delete-branch', async (name, force) => (await repositoryWatcher.mutate(() => git.deleteBranch(name, force))).snapshot);
+  handle('repository:delete-branch-with-remote', async (name, upstream) => (await repositoryWatcher.mutate(() => git.deleteBranchWithRemote(name, upstream))).snapshot);
   handle('repository:set-upstream', async (branch, upstream) => (await repositoryWatcher.mutate(() => git.setUpstream(branch, upstream))).snapshot);
   handle('repository:checkout-remote-branch', async (remoteBranch, localName) => (await repositoryWatcher.mutate(() => git.checkoutRemoteBranch(remoteBranch, localName))).snapshot);
   handle('repository:push-branch', async (branch, options) => repositoryWatcher.mutate(() => git.pushBranch(branch, options)));

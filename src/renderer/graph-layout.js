@@ -48,6 +48,46 @@
     console.log(`GRAPH_LAYOUT ${event} ${JSON.stringify(data)}`);
   }
 
+  function filterGraphVisibility(commits, branches, options = {}) {
+    const graphCommits = (commits || []).filter((commit) => !commit.stashRef);
+    const graphBranches = branches || [];
+    const hiddenBranchNames = new Set(options.hiddenBranchNames || []);
+    const soloBranch = options.soloBranchName
+      ? graphBranches.find((branch) => !branch.remote && branch.name === options.soloBranchName)
+      : null;
+    const hiddenLocalBranches = graphBranches.filter((branch) => !branch.remote && hiddenBranchNames.has(branch.name));
+    const hiddenRemoteNames = new Set();
+    hiddenLocalBranches.forEach((localBranch) => {
+      if (localBranch.upstream) hiddenRemoteNames.add(localBranch.upstream);
+      graphBranches.filter((branch) => branch.remote && branch.hash === localBranch.hash && branch.name.split('/').slice(1).join('/') === localBranch.name)
+        .forEach((branch) => hiddenRemoteNames.add(branch.name));
+    });
+    const visibleBranches = soloBranch
+      ? graphBranches.filter((branch) => branch === soloBranch || (branch.remote && (
+        branch.name === soloBranch.upstream
+        || (!soloBranch.upstream && branch.hash === soloBranch.hash && branch.name.split('/').slice(1).join('/') === soloBranch.name)
+      )))
+      : graphBranches.filter((branch) => (branch.remote ? !hiddenRemoteNames.has(branch.name) : !hiddenBranchNames.has(branch.name)));
+
+    if (!soloBranch && hiddenBranchNames.size === 0) return { commits: graphCommits, branches: visibleBranches };
+
+    const commitsByHash = new Map(graphCommits.map((commit) => [commit.hash, commit]));
+    const reachable = new Set();
+    const pending = [...new Set(visibleBranches.filter((branch) => !branch.symbolic).map((branch) => branch.hash).filter(Boolean))];
+    while (pending.length) {
+      const hash = pending.pop();
+      if (reachable.has(hash)) continue;
+      reachable.add(hash);
+      const commit = commitsByHash.get(hash);
+      if (commit) pending.push(...commit.parents);
+    }
+
+    return {
+      commits: reachable.size ? graphCommits.filter((commit) => reachable.has(commit.hash)) : graphCommits,
+      branches: visibleBranches,
+    };
+  }
+
   function layoutCommitGraph(commits, options = {}) {
     const lanes = [];
     const laneColors = [];
@@ -203,5 +243,5 @@
     return { rows, laneCount, workingTreeNode };
   }
 
-  return { layoutCommitGraph };
+  return { filterGraphVisibility, layoutCommitGraph };
 }));

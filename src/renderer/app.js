@@ -5,6 +5,8 @@ const state = {
   selectedCommit: null,
   selectedStash: null,
   hiddenStashHashes: loadHiddenStashHashes(),
+  hiddenBranchNames: loadHiddenBranchNames(),
+  soloBranchName: null,
   busy: false,
   pendingSnapshot: null,
   historyQuery: '',
@@ -31,8 +33,48 @@ function saveHiddenStashHashes() {
   localStorage.setItem('forkline:hidden-stashes', JSON.stringify([...state.hiddenStashHashes]));
 }
 
+function loadHiddenBranchNames() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem('forkline:hidden-branches') || '[]'));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveHiddenBranchNames() {
+  localStorage.setItem('forkline:hidden-branches', JSON.stringify([...state.hiddenBranchNames]));
+}
+
+function graphVisibility() {
+  return window.ForklineGraph.filterGraphVisibility(
+    state.snapshot?.commits || [],
+    state.snapshot?.branches || [],
+    { hiddenBranchNames: state.hiddenBranchNames, soloBranchName: state.soloBranchName },
+  );
+}
+
+function visibleGraphBranches() {
+  return graphVisibility().branches;
+}
+
 function visibleGraphCommits() {
-  return (state.snapshot?.commits || []).filter((commit) => !commit.stashRef);
+  return graphVisibility().commits;
+}
+
+function isVisibleAncestor(ancestorHash, descendantHash) {
+  if (!ancestorHash || !descendantHash || ancestorHash === descendantHash) return ancestorHash === descendantHash;
+  const commits = new Map((state.snapshot?.commits || []).map((commit) => [commit.hash, commit]));
+  const pending = [descendantHash];
+  const visited = new Set();
+  while (pending.length) {
+    const hash = pending.pop();
+    if (hash === ancestorHash) return true;
+    if (visited.has(hash)) continue;
+    visited.add(hash);
+    const commit = commits.get(hash);
+    if (commit) pending.push(...commit.parents);
+  }
+  return false;
 }
 
 const $ = (selector) => document.querySelector(selector);
@@ -143,42 +185,80 @@ function applySnapshot(snapshot, options = {}) {
 }
 
 function renderBranches() {
-  const local = state.snapshot.branches.filter((branch) => !branch.remote);
+  const allLocal = state.snapshot.branches.filter((branch) => !branch.remote);
+  const existingNames = new Set(allLocal.map((branch) => branch.name));
+  let hiddenBranchesChanged = false;
+  state.hiddenBranchNames.forEach((name) => {
+    if (!existingNames.has(name)) {
+      state.hiddenBranchNames.delete(name);
+      hiddenBranchesChanged = true;
+    }
+  });
+  const activeBranch = allLocal.find((branch) => branch.current);
+  if (activeBranch && state.hiddenBranchNames.delete(activeBranch.name)) hiddenBranchesChanged = true;
+  if (hiddenBranchesChanged) saveHiddenBranchNames();
+  if (state.soloBranchName && !existingNames.has(state.soloBranchName)) state.soloBranchName = null;
+  const local = allLocal.filter((branch) => !state.hiddenBranchNames.has(branch.name));
   const commits = visibleGraphCommits();
-  const graph = window.ForklineGraph.layoutCommitGraph(commits, { headHash: state.snapshot.headHash, branches: state.snapshot.branches });
-  $('#branches').innerHTML = local.map((branch) => `
-    <button class="branch-item${branch.current ? ' current' : ''}" style="--branch-color: ${graphColorForHash(graph, branch.hash, commits)}" data-branch="${escapeHtml(branch.name)}" title="${escapeHtml(branchSyncDetails(branch).tooltip)}" aria-label="${escapeHtml(`${branch.name} : ${branchSyncDetails(branch).tooltip}`)}">
+  const graphBranches = visibleGraphBranches();
+  const graph = window.ForklineGraph.layoutCommitGraph(commits, { headHash: state.snapshot.headHash, branches: graphBranches });
+  const controls = `${state.soloBranchName ? '<button type="button" class="branch-visibility-action" data-branch-visibility="stop-solo">Afficher toutes les branches</button>' : ''}${state.hiddenBranchNames.size ? `<button type="button" class="branch-visibility-action" data-branch-visibility="show-hidden">Afficher ${state.hiddenBranchNames.size} branche${state.hiddenBranchNames.size > 1 ? 's' : ''} masquée${state.hiddenBranchNames.size > 1 ? 's' : ''}</button>` : ''}`;
+  $('#branches').innerHTML = `${local.map((branch) => `
+    <button class="branch-item${branch.current ? ' current' : ''}${state.soloBranchName === branch.name ? ' solo' : ''}" style="--branch-color: ${graphColorForHash(graph, branch.hash, commits)}" data-branch="${escapeHtml(branch.name)}" title="${escapeHtml(branchSyncDetails(branch).tooltip)}" aria-label="${escapeHtml(`${branch.name} : ${branchSyncDetails(branch).tooltip}`)}">
       ${branch.current ? '<span class="branch-current" aria-label="Branche active">✓</span>' : ''}<span class="branch-symbol"><i></i></span><span>${escapeHtml(branch.name)}</span>${renderBranchSync(branch)}
-    </button>`).join('');
+    </button>`).join('')}${controls}`;
   $$('.branch-item').forEach((button) => button.addEventListener('click', () => switchBranch(button.dataset.branch)));
   $$('.branch-item').forEach((button) => button.addEventListener('contextmenu', (event) => {
     event.preventDefault();
     event.stopPropagation();
     showBranchContextMenu(button.dataset.branch, event.clientX, event.clientY);
   }));
+  $$('[data-branch-visibility]').forEach((button) => button.addEventListener('click', () => {
+    if (button.dataset.branchVisibility === 'stop-solo') state.soloBranchName = null;
+    else {
+      state.hiddenBranchNames.clear();
+      saveHiddenBranchNames();
+    }
+    renderBranches();
+    renderCommits();
+  }));
 }
 
-const BRANCH_CONTEXT_ACTIONS = [
-  { id: 'checkout', icon: '✓', label: 'Basculer sur cette branche' },
-  { id: 'create', icon: '＋', label: 'Créer une branche ici' },
-  { separator: true },
-  { id: 'merge', icon: '↘', label: 'Fusionner dans la branche active' },
-  { id: 'rebase', icon: '⇢', label: 'Rebaser la branche active sur celle-ci' },
-  { id: 'cherry-pick', icon: '⌁', label: 'Cherry-pick du dernier commit' },
-  { separator: true },
-  { id: 'pull', icon: '↓', label: 'Pull' },
-  { id: 'push', icon: '↑', label: 'Push' },
-  { id: 'upstream', icon: '☁', label: 'Définir la branche distante suivie' },
-  { separator: true },
-  { id: 'rename', icon: '✎', label: 'Renommer la branche' },
-  { id: 'copy', icon: '⧉', label: 'Copier le nom de la branche' },
-  { id: 'delete', icon: '⌫', label: 'Supprimer la branche', danger: true },
-  { id: 'force-delete', icon: '⌫', label: 'Forcer la suppression de la branche', danger: true },
-  { separator: true },
-  { id: 'compare', icon: '≠', label: 'Comparer avec la copie de travail' },
-  { id: 'tag', icon: '◇', label: 'Créer un tag ici' },
-  { id: 'annotated-tag', icon: '◆', label: 'Créer un tag annoté ici' },
-];
+function branchContextActions(branch) {
+  const activeBranch = state.snapshot.branches.find((candidate) => !candidate.remote && candidate.current);
+  const activeName = activeBranch?.name || state.snapshot.head;
+  const sameBranch = branch.current || branch.name === activeName;
+  const hasRemote = state.snapshot.remotes?.length > 0;
+  const canFastForward = !sameBranch && isVisibleAncestor(state.snapshot.headHash, branch.hash);
+  const flowType = gitFlowBranchType(branch.name);
+  return [
+    { id: 'checkout', icon: '✓', label: `Checkout ${branch.name}`, disabled: sameBranch, disabledReason: 'Cette branche est déjà active.' },
+    { id: 'create', icon: '＋', label: 'Créer une branche ici' },
+    { id: 'tag', icon: '◇', label: 'Créer un tag ici' },
+    { id: 'annotated-tag', icon: '◆', label: 'Créer un tag annoté ici' },
+    { separator: true },
+    { id: 'merge', icon: '↘', label: `Fusionner ${branch.name} dans ${activeName}`, disabled: sameBranch, disabledReason: 'Impossible de fusionner une branche avec elle-même.' },
+    { id: 'rebase', icon: '⇢', label: `Rebaser ${activeName} sur ${branch.name}`, disabled: sameBranch, disabledReason: 'Impossible de rebaser une branche sur elle-même.' },
+    { id: 'interactive-rebase', icon: '⇶', label: `Rebase interactif de ${activeName} sur ${branch.name}`, disabled: sameBranch, disabledReason: 'Impossible de rebaser une branche sur elle-même.' },
+    ...(canFastForward ? [{ id: 'fast-forward', icon: '↠', label: `Fast-forward ${activeName} vers ${branch.name}` }] : []),
+    { id: 'cherry-pick', icon: '⌁', label: `Cherry-pick du dernier commit de ${branch.name}`, disabled: sameBranch, disabledReason: 'Le commit est déjà sur la branche active.' },
+    { separator: true },
+    { id: 'pull', icon: '↓', label: `Pull ${branch.name}`, disabled: !sameBranch || !branch.upstream, disabledReason: !sameBranch ? 'Checkout cette branche avant le Pull.' : 'Définissez d’abord une branche distante suivie.' },
+    { id: 'push', icon: '↑', label: `Push ${branch.name}…`, disabled: !hasRemote, disabledReason: 'Aucun dépôt distant n’est configuré.' },
+    { id: 'upstream', icon: '☁', label: 'Définir la branche distante suivie', disabled: !hasRemote, disabledReason: 'Aucun dépôt distant n’est configuré.' },
+    { separator: true },
+    { id: 'rename', icon: '✎', label: `Renommer ${branch.name}` },
+    { id: 'copy', icon: '⧉', label: 'Copier le nom de la branche' },
+    { id: 'delete', icon: '⌫', label: `Supprimer ${branch.name}`, danger: true, disabled: sameBranch, disabledReason: 'Impossible de supprimer la branche active.' },
+    ...(branch.upstream && branch.tracking?.state !== 'gone' ? [{ id: 'delete-with-remote', icon: '⌫', label: `Supprimer ${branch.name} et ${branch.upstream}`, danger: true, disabled: sameBranch, disabledReason: 'Impossible de supprimer la branche active.' }] : []),
+    { id: 'force-delete', icon: '⌫', label: `Forcer la suppression de ${branch.name}`, danger: true, disabled: sameBranch, disabledReason: 'Impossible de supprimer la branche active.' },
+    { separator: true },
+    { id: 'compare', icon: '≠', label: 'Comparer avec la copie de travail' },
+    { id: 'solo', icon: '◉', label: state.soloBranchName === branch.name ? 'Arrêter le mode Solo' : `Solo ${branch.name}` },
+    { id: 'hide', icon: '◌', label: `Masquer ${branch.name}`, disabled: sameBranch, disabledReason: 'La branche active doit rester visible.' },
+    ...(flowType && flowType !== 'support' ? [{ separator: true }, { id: 'finish-flow', icon: '✓', label: `Terminer la ${flowType} Git Flow` }] : []),
+  ];
+}
 
 function closeBranchContextMenu() {
   $('#branch-context-menu')?.remove();
@@ -195,20 +275,21 @@ function showBranchContextMenu(branchName, clientX, clientY) {
   menu.id = 'branch-context-menu';
   menu.className = 'branch-context-menu';
   menu.setAttribute('role', 'menu');
-  const flowType = gitFlowBranchType(branchName);
-  const actions = flowType && flowType !== 'support' ? [...BRANCH_CONTEXT_ACTIONS, { separator: true }, { id: 'finish-flow', icon: '✓', label: `Terminer la ${flowType} Git Flow` }] : BRANCH_CONTEXT_ACTIONS;
+  const branch = state.snapshot.branches.find((candidate) => !candidate.remote && candidate.name === branchName);
+  if (!branch) return;
+  const actions = branchContextActions(branch);
   menu.innerHTML = `<div class="branch-context-title"><span>BRANCHE</span><strong>${escapeHtml(branchName)}</strong></div>${actions.map((action) => action.separator
     ? '<div class="branch-context-separator"></div>'
-    : `<button type="button" role="menuitem" data-branch-action="${action.id}" class="branch-context-action${action.danger ? ' danger' : ''}"><span>${action.icon}</span><span>${escapeHtml(action.label)}</span></button>`).join('')}`;
+    : `<button type="button" role="menuitem" data-branch-action="${action.id}" class="branch-context-action${action.danger ? ' danger' : ''}"${action.disabled ? ` disabled title="${escapeHtml(action.disabledReason || 'Action indisponible.')}"` : ''}><span>${action.icon}</span><span>${escapeHtml(action.label)}</span></button>`).join('')}`;
   document.body.append(menu);
   const bounds = menu.getBoundingClientRect();
   menu.style.left = `${Math.max(8, Math.min(clientX, window.innerWidth - bounds.width - 8))}px`;
   menu.style.top = `${Math.max(52, Math.min(clientY, window.innerHeight - bounds.height - 8))}px`;
-  menu.querySelectorAll('[data-branch-action]').forEach((button) => button.addEventListener('click', () => {
+  menu.querySelectorAll('[data-branch-action]:not(:disabled)').forEach((button) => button.addEventListener('click', () => {
     closeBranchContextMenu();
     runBranchContextAction(button.dataset.branchAction, branchName);
   }));
-  menu.querySelector('.branch-context-action')?.focus();
+  menu.querySelector('.branch-context-action:not(:disabled)')?.focus();
 }
 
 function commitContextActions(commit) {
@@ -342,6 +423,17 @@ async function runBranchContextAction(operation, branchName) {
     if (window.confirm(`Rebaser ${state.snapshot.head} sur ${branchName} ?`)) await executeRepositoryAction(`Branche rebasée sur ${branchName}`, () => window.forkline.rebaseBranch(branchName));
     return;
   }
+  if (operation === 'interactive-rebase') {
+    const commit = state.snapshot.commits.find((candidate) => candidate.hash === branch.hash);
+    if (!commit) return toast('Le commit de cette branche n’est pas visible dans le graphe.', true);
+    return openInteractiveRebase(commit);
+  }
+  if (operation === 'fast-forward') {
+    if (window.confirm(`Avancer ${state.snapshot.head} en fast-forward jusqu’à ${branchName} ?`)) {
+      await executeRepositoryAction(`Branche ${state.snapshot.head} avancée jusqu’à ${branchName}`, () => window.forkline.fastForwardBranch(branchName));
+    }
+    return;
+  }
   if (operation === 'cherry-pick') {
     if (window.confirm(`Cherry-pick du dernier commit de ${branchName} ?`)) await executeRepositoryAction('Commit appliqué', () => window.forkline.cherryPick(branchName));
     return;
@@ -351,7 +443,12 @@ async function runBranchContextAction(operation, branchName) {
     await executeRepositoryAction('Pull terminé', () => window.forkline.pull());
     return;
   }
-  if (operation === 'push') return executeRepositoryAction(`Branche ${branchName} publiée`, () => window.forkline.pushBranch(branchName));
+  if (operation === 'push') {
+    const remote = [...(state.snapshot.remotes || [])]
+      .sort((left, right) => right.name.length - left.name.length)
+      .find((candidate) => branch.upstream?.startsWith(`${candidate.name}/`));
+    return executeRepositoryAction(`Branche ${branchName} publiée`, () => window.forkline.pushBranch(branchName, remote ? { remote: remote.name } : {}));
+  }
   if (operation === 'upstream') {
     const upstream = window.prompt('Branche distante suivie :', branch.upstream || `origin/${branchName}`);
     if (upstream?.trim()) await executeRepositoryAction('Branche distante associée', () => window.forkline.setUpstream(branchName, upstream.trim()));
@@ -367,6 +464,12 @@ async function runBranchContextAction(operation, branchName) {
     if (window.confirm(`Supprimer la branche ${branchName} ?`)) await executeRepositoryAction(`Branche ${branchName} supprimée`, () => window.forkline.deleteBranch(branchName, false));
     return;
   }
+  if (operation === 'delete-with-remote') {
+    if (window.confirm(`Supprimer définitivement ${branchName} et ${branch.upstream} ?`)) {
+      await executeRepositoryAction(`Branches ${branchName} et ${branch.upstream} supprimées`, () => window.forkline.deleteBranchWithRemote(branchName, branch.upstream));
+    }
+    return;
+  }
   if (operation === 'force-delete') {
     if (branch.current) return toast('Impossible de supprimer la branche actuellement active.', true);
     const confirmation = window.prompt(`Cette action supprime ${branchName}, même si ses commits ne sont pas fusionnés.\nSaisissez exactement le nom de la branche pour confirmer :`);
@@ -374,7 +477,21 @@ async function runBranchContextAction(operation, branchName) {
     else if (confirmation !== null) toast('Confirmation incorrecte, aucune branche supprimée.', true);
     return;
   }
-  if (operation === 'compare') return branch.current ? showComparison(branchName, branchName) : showRevisionComparison(branchName, state.snapshot.head, `${branchName} → ${state.snapshot.head}`);
+  if (operation === 'compare') return showComparison(branchName, branchName);
+  if (operation === 'solo') {
+    state.soloBranchName = state.soloBranchName === branchName ? null : branchName;
+    renderBranches();
+    renderCommits();
+    return;
+  }
+  if (operation === 'hide') {
+    state.hiddenBranchNames.add(branchName);
+    saveHiddenBranchNames();
+    if (state.soloBranchName === branchName) state.soloBranchName = null;
+    renderBranches();
+    renderCommits();
+    return;
+  }
   if (operation === 'tag' || operation === 'annotated-tag') return createTagAt(branch.hash, operation === 'annotated-tag');
   if (operation === 'finish-flow') {
     const type = gitFlowBranchType(branchName);
@@ -778,8 +895,9 @@ function graphColorForHash(graph, hash, commits = state.snapshot.commits) {
 }
 
 function graphLabelDetails(commit, branchColor) {
-  const localBranches = state.snapshot.branches.filter((branch) => !branch.remote);
-  const remoteBranches = state.snapshot.branches.filter((branch) => branch.remote && !branch.symbolic && !branch.name.includes('HEAD'));
+  const graphBranches = visibleGraphBranches();
+  const localBranches = graphBranches.filter((branch) => !branch.remote);
+  const remoteBranches = graphBranches.filter((branch) => branch.remote && !branch.symbolic && !branch.name.includes('HEAD'));
   const consumedRemoteNames = new Set();
   const renderedLocalNames = new Set();
   const labels = [];
@@ -805,7 +923,7 @@ function graphLabelDetails(commit, branchColor) {
     const tooltip = matchingRemote && !upstream
       ? `Branche locale ${branch.name} et distante ${matchingRemote.name} sur le même commit`
       : sync.tooltip;
-    labels.push({ anchorHash: commit.hash, name: branch.name, type: branch.current ? 'head' : 'local', color: branchColor, iconTypes, tooltip });
+    labels.push({ anchorHash: commit.hash, branchName: branch.name, name: branch.name, type: branch.current ? 'head' : 'local', color: branchColor, iconTypes, tooltip });
   });
 
   remoteBranches.filter((branch) => branch.hash === commit.hash && !consumedRemoteNames.has(branch.name)).forEach((branch) => {
@@ -958,7 +1076,7 @@ function graphLabelGroupMarkup(labels, nodeX, nodeY, color) {
     const nameX = labelStart + 15 + (isCurrent ? 15 : 0);
     const iconStart = nameX + label.name.length * 6.6 + 4;
     const icons = label.iconTypes.filter((type) => type !== 'current').map((type, iconIndex) => graphIconMarkup(type, iconStart + iconIndex * 15, labelY + 5, label.color)).join('');
-    return `<g class="branch-label ${label.type}">
+    return `<g class="branch-label ${label.type}"${label.branchName ? ` data-graph-branch="${escapeHtml(label.branchName)}"` : ''}>
       <rect x="${labelStart}" y="${labelY}" width="${metrics.width}" height="${metrics.rowHeight}" rx="3" fill="${label.color}" fill-opacity=".12" stroke="${label.color}"/>
       <title>${escapeHtml(label.tooltip)}</title>
       ${isCurrent ? graphIconMarkup('current', labelStart + 3, labelY + 5, label.color) : ''}<text x="${nameX}" y="${labelY + 14}" fill="${label.color}">${escapeHtml(label.name)}</text>${icons}
@@ -1047,7 +1165,7 @@ function renderCommits() {
   const graph = window.ForklineGraph.layoutCommitGraph(commits, {
     headHash: state.snapshot.headHash,
     showWorkingTree: state.snapshot.status.files.length > 0,
-    branches: state.snapshot.branches,
+    branches: visibleGraphBranches(),
     orderDebug: state.snapshot.orderDebug,
     debug: window.forkline.debugGraphLayout,
   });
@@ -1112,6 +1230,11 @@ function renderCommits() {
     event.stopPropagation();
     const commit = state.snapshot.commits.find((item) => item.hash === row.dataset.hash);
     if (commit) showCommitContextMenu(commit, event.clientX, event.clientY);
+  }));
+  $$('[data-graph-branch]').forEach((label) => label.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    showBranchContextMenu(label.dataset.graphBranch, event.clientX, event.clientY);
   }));
   $$('.working-tree-row').forEach((row) => row.addEventListener('click', () => showInspector('#worktree-detail')));
   renderComparisonBar();

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { layoutCommitGraph } = require('../src/renderer/graph-layout');
+const { filterGraphVisibility, layoutCommitGraph } = require('../src/renderer/graph-layout');
 
 test('keeps a linear history in one lane', () => {
   const graph = layoutCommitGraph([
@@ -97,4 +97,38 @@ test('keeps detached HEAD separate from the branch that owns an auto stash', () 
   assert.deepEqual(graph.rows.map((row) => row.lane), [1, 1, 0, 0]);
   assert.deepEqual(graph.rows[0].before, ['detached-head', 'master-tip']);
   assert.deepEqual(graph.rows[1].connections.map(({ from, to }) => [from, to]), [[1, 0]]);
+});
+
+test('hides commits that are only reachable from a hidden local branch', () => {
+  const commits = [
+    { hash: 'feature-tip', parents: ['root'] },
+    { hash: 'main-tip', parents: ['root'] },
+    { hash: 'root', parents: [] },
+  ];
+  const visibility = filterGraphVisibility(commits, [
+    { name: 'main', hash: 'main-tip', remote: false },
+    { name: 'feature/test', hash: 'feature-tip', upstream: 'origin/feature/test', remote: false },
+    { name: 'origin/feature/test', hash: 'feature-tip', remote: true },
+  ], { hiddenBranchNames: ['feature/test'] });
+
+  assert.deepEqual(visibility.branches.map((branch) => branch.name), ['main']);
+  assert.deepEqual(visibility.commits.map((commit) => commit.hash), ['main-tip', 'root']);
+  assert.equal(layoutCommitGraph(visibility.commits, { branches: visibility.branches }).laneCount, 1);
+});
+
+test('solo keeps the selected branch, its upstream and their shared history', () => {
+  const visibility = filterGraphVisibility([
+    { hash: 'feature-tip', parents: ['root'] },
+    { hash: 'main-tip', parents: ['root'] },
+    { hash: 'stash-node', parents: ['feature-tip'], stashRef: 'stash@{0}' },
+    { hash: 'root', parents: [] },
+  ], [
+    { name: 'main', hash: 'main-tip', remote: false },
+    { name: 'feature/test', hash: 'feature-tip', upstream: 'origin/feature/test', remote: false },
+    { name: 'origin/main', hash: 'main-tip', remote: true },
+    { name: 'origin/feature/test', hash: 'feature-tip', remote: true },
+  ], { soloBranchName: 'feature/test' });
+
+  assert.deepEqual(visibility.branches.map((branch) => branch.name), ['feature/test', 'origin/feature/test']);
+  assert.deepEqual(visibility.commits.map((commit) => commit.hash), ['feature-tip', 'root']);
 });

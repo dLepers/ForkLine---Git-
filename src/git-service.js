@@ -1005,6 +1005,11 @@ class GitService {
     return this.runConflictAware(['rebase', name]);
   }
 
+  async fastForwardBranch(name) {
+    await this.validateBranchName(name, true);
+    return this.runConflictAware(['merge', '--ff-only', name]);
+  }
+
   async cherryPick(revision) {
     await this.validateRevision(revision);
     return this.runConflictAware(['cherry-pick', revision]);
@@ -1034,6 +1039,20 @@ class GitService {
     return this.run(['branch', force ? '-D' : '-d', name]);
   }
 
+  async deleteBranchWithRemote(name, upstream) {
+    await this.validateBranchName(name, true);
+    const current = await this.head();
+    if (current === name) throw new GitError('Impossible de supprimer la branche actuellement active.');
+    const remotes = (await this.run(['remote'])).split('\n').filter(Boolean).sort((left, right) => right.length - left.length);
+    const remote = remotes.find((candidate) => String(upstream).startsWith(`${candidate}/`));
+    const remoteBranch = remote ? String(upstream).slice(remote.length + 1) : '';
+    if (!remote || !remoteBranch) throw new GitError('Branche distante suivie invalide.');
+    await this.validateBranchName(remoteBranch, true);
+    await this.run(['rev-parse', '--verify', `refs/remotes/${remote}/${remoteBranch}`]);
+    await this.run(['push', remote, '--delete', remoteBranch]);
+    return this.run(['branch', '-D', name]);
+  }
+
   async setUpstream(branch, upstream) {
     await this.validateBranchName(branch, true);
     if (typeof upstream !== 'string' || upstream.startsWith('-')) throw new GitError('Branche distante invalide.');
@@ -1051,8 +1070,10 @@ class GitService {
 
   async pushBranch(branch, options = {}) {
     await this.validateBranchName(branch, true);
-    const remote = (await this.run(['remote'])).split('\n').find(Boolean);
+    const remotes = (await this.run(['remote'])).split('\n').filter(Boolean);
+    const remote = String(options.remote || '').trim() || remotes[0];
     if (!remote) throw new GitError('Aucun dépôt distant n’est configuré.');
+    if (!remotes.includes(remote)) throw new GitError(`Le dépôt distant « ${remote} » n’existe pas.`);
     return this.push({ ...options, remote, branch, setUpstream: true });
   }
 
@@ -1235,9 +1256,9 @@ class GitService {
   async interactiveRebasePlan(baseRevision) {
     await this.validateRevision(baseRevision);
     try {
-      await this.run(['merge-base', '--is-ancestor', baseRevision, 'HEAD']);
+      await this.run(['merge-base', baseRevision, 'HEAD']);
     } catch {
-      throw new GitError('Le commit sélectionné n’appartient pas à l’historique de la branche active.');
+      throw new GitError('La branche active et la référence sélectionnée n’ont aucun historique commun.');
     }
     const format = `%H${FIELD}%h${FIELD}%s${FIELD}%an${FIELD}%aI${RECORD}`;
     const output = await this.run(['log', '--reverse', '--first-parent', `--pretty=format:${format}`, `${baseRevision}..HEAD`]);

@@ -7,6 +7,7 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { GitService, parseTrackingStatus } = require('../src/git-service');
 const { branchSyncState } = require('../src/branch-sync');
+const { layoutCommitGraph } = require('../src/renderer/graph-layout');
 
 const exec = promisify(execFile);
 let repository;
@@ -190,6 +191,29 @@ test('rewords multiple commits during an interactive rebase', async () => {
   assert.deepEqual((await git.commits()).slice(0, 2).map((commit) => commit.subject), ['New message 2', 'New message 1']);
 });
 
+test('interactively rebases the active branch onto a divergent branch', async () => {
+  const rootHash = (await git.snapshot()).headHash;
+  await git.createBranch('target', rootHash);
+  await fs.writeFile(path.join(repository, 'target.txt'), 'Target branch\n');
+  await git.stage(['target.txt']);
+  await git.commit('Target commit');
+  const targetHash = (await git.snapshot()).headHash;
+
+  await git.switchBranch('main');
+  await fs.writeFile(path.join(repository, 'main.txt'), 'Main branch\n');
+  await git.stage(['main.txt']);
+  await git.commit('Main commit');
+
+  const plan = await git.interactiveRebasePlan('target');
+  assert.deepEqual(plan.map((commit) => commit.subject), ['Main commit']);
+  const result = await git.interactiveRebase('target', plan);
+
+  assert.equal(result.conflicted, false);
+  assert.equal(await git.head(), 'main');
+  assert.equal((await command(['rev-parse', 'HEAD^'])).stdout.trim(), targetHash);
+  assert.deepEqual((await git.commits()).slice(0, 2).map((commit) => commit.subject), ['Main commit', 'Target commit']);
+});
+
 test('manages a branch lifecycle from a selected revision', async () => {
   const initialHash = (await git.snapshot()).headHash;
 
@@ -201,6 +225,52 @@ test('manages a branch lifecycle from a selected revision', async () => {
   await git.switchBranch('main');
   await git.deleteBranch('feature/renamed');
   assert.equal((await git.snapshot()).branches.some((branch) => branch.name === 'feature/renamed'), false);
+});
+
+test('fast-forwards the active branch to another branch without a merge commit', async () => {
+  await git.createBranch('feature/fast-forward');
+  await fs.writeFile(path.join(repository, 'fast-forward.txt'), 'Fast-forward\n');
+  await git.stage(['fast-forward.txt']);
+  await git.commit('Fast-forward target');
+  const featureHash = (await git.snapshot()).headHash;
+  await git.switchBranch('main');
+
+  const result = await git.fastForwardBranch('feature/fast-forward');
+
+  assert.equal(result.conflicted, false);
+  assert.equal(await git.head(), 'main');
+  assert.equal((await git.snapshot()).headHash, featureHash);
+  assert.equal((await command(['rev-list', '--count', '--merges', 'main'])).stdout.trim(), '0');
+});
+
+test('keeps branch references anchored to the graph after a merge action', async () => {
+  await git.createBranch('feature/graph');
+  await fs.writeFile(path.join(repository, 'feature.txt'), 'Feature\n');
+  await git.stage(['feature.txt']);
+  await git.commit('Feature graph commit');
+  const featureHash = (await git.snapshot()).headHash;
+
+  await git.switchBranch('main');
+  await fs.writeFile(path.join(repository, 'main.txt'), 'Main\n');
+  await git.stage(['main.txt']);
+  await git.commit('Main graph commit');
+  const result = await git.mergeBranch('feature/graph');
+  assert.equal(result.conflicted, false);
+
+  const snapshot = await git.snapshot();
+  const graph = layoutCommitGraph(snapshot.commits.filter((commit) => !commit.stashRef), {
+    headHash: snapshot.headHash,
+    branches: snapshot.branches,
+  });
+  const headRow = snapshot.commits.findIndex((commit) => commit.hash === snapshot.headHash);
+  const main = snapshot.branches.find((branch) => branch.name === 'main');
+  const feature = snapshot.branches.find((branch) => branch.name === 'feature/graph');
+
+  assert.equal(main.hash, snapshot.headHash);
+  assert.equal(feature.hash, featureHash);
+  assert.equal(snapshot.commits[headRow].parents.length, 2);
+  assert.equal(graph.rows[headRow].connections.length, 2);
+  assert.equal(graph.rows[headRow].lane, 0);
 });
 
 test('undoes and redoes a commit without discarding its changes', async () => {
@@ -389,6 +459,47 @@ test('adds, renames, fetches and removes a remote', async () => {
     assert.equal((await git.remotes())[0].name, 'origin');
     await git.removeRemote('origin');
     assert.deepEqual(await git.remotes(), []);
+  } finally {
+    await fs.rm(remoteRepository, { recursive: true, force: true });
+  }
+});
+
+test('pushes a branch to the explicitly selected remote', async () => {
+  const originRepository = await fs.mkdtemp(path.join(os.tmpdir(), 'forkline-origin-'));
+  const backupRepository = await fs.mkdtemp(path.join(os.tmpdir(), 'forkline-backup-'));
+  try {
+    await exec('git', ['init', '--bare', originRepository], { encoding: 'utf8' });
+    await exec('git', ['init', '--bare', backupRepository], { encoding: 'utf8' });
+    await git.addRemote('origin', originRepository);
+    await git.addRemote('backup', backupRepository);
+
+    await git.pushBranch('main', { remote: 'backup' });
+
+    await assert.rejects(() => exec('git', ['--git-dir', originRepository, 'show-ref', '--verify', 'refs/heads/main'], { encoding: 'utf8' }));
+    assert.match((await exec('git', ['--git-dir', backupRepository, 'show-ref', '--verify', 'refs/heads/main'], { encoding: 'utf8' })).stdout, /refs\/heads\/main/);
+    await assert.rejects(() => git.pushBranch('main', { remote: 'missing' }), /n’existe pas/);
+  } finally {
+    await fs.rm(originRepository, { recursive: true, force: true });
+    await fs.rm(backupRepository, { recursive: true, force: true });
+  }
+});
+
+test('deletes a local branch and its tracked remote branch together', async () => {
+  const remoteRepository = await fs.mkdtemp(path.join(os.tmpdir(), 'forkline-delete-remote-'));
+  try {
+    await exec('git', ['init', '--bare', remoteRepository], { encoding: 'utf8' });
+    await git.addRemote('origin', remoteRepository);
+    await git.createBranch('feature/remote-delete');
+    await fs.writeFile(path.join(repository, 'remote-delete.txt'), 'Delete me\n');
+    await git.stage(['remote-delete.txt']);
+    await git.commit('Remote branch to delete');
+    await git.pushBranch('feature/remote-delete', { remote: 'origin' });
+    await git.switchBranch('main');
+
+    await git.deleteBranchWithRemote('feature/remote-delete', 'origin/feature/remote-delete');
+
+    assert.equal((await git.branches()).some((branch) => branch.name === 'feature/remote-delete'), false);
+    await assert.rejects(() => exec('git', ['--git-dir', remoteRepository, 'show-ref', '--verify', 'refs/heads/feature/remote-delete'], { encoding: 'utf8' }));
   } finally {
     await fs.rm(remoteRepository, { recursive: true, force: true });
   }
