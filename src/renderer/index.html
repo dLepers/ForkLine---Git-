@@ -156,6 +156,21 @@
         <div class="dialog-actions"><button value="cancel" class="button">Annuler</button><button id="confirm-branch" value="default" class="button button-primary">Créer et basculer</button></div>
       </form>
     </dialog>
+    <dialog id="tag-dialog">
+      <form method="dialog">
+        <p class="eyebrow">NOUVEAU TAG</p>
+        <h3>Créer sur <span id="tag-source"></span></h3>
+        <label for="tag-name">Nom du tag</label>
+        <input id="tag-name" autocomplete="off" placeholder="v1.0.0" aria-describedby="tag-error">
+        <p id="tag-error" class="dialog-error hidden" role="alert"></p>
+        <label class="dialog-check"><input id="tag-annotated" type="checkbox"><span>Créer un tag annoté</span></label>
+        <div id="tag-message-field" class="hidden">
+          <label for="tag-message">Message du tag</label>
+          <textarea id="tag-message" rows="3" placeholder="Décrire cette version…"></textarea>
+        </div>
+        <div class="dialog-actions"><button value="cancel" class="button">Annuler</button><button id="confirm-tag" value="default" class="button button-primary">Créer le tag</button></div>
+      </form>
+    </dialog>
     <dialog id="stash-dialog">
       <form method="dialog">
         <p class="eyebrow">NOUVEAU STASH</p>

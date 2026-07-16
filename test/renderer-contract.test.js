@@ -57,6 +57,14 @@ test('contextual branch creation uses the shared dialog and selected revision', 
   assert.match(html, /id="branch-error"[^>]*role="alert"/);
 });
 
+test('contextual tag creation uses a shared validated dialog and selected revision', () => {
+  assert.match(renderer, /createTagAt\(branch\.hash, operation === 'annotated-tag', branch\.name\)/);
+  assert.match(renderer, /createTagAt\(commit\.hash, operation === 'annotated-tag', commit\.shortHash\)/);
+  assert.match(renderer, /window\.forkline\.createTag\(name, state\.tagCreation\.revision, message\)/);
+  assert.match(html, /id="tag-dialog"/);
+  assert.match(html, /id="tag-error"[^>]*role="alert"/);
+});
+
 test('stash rows preserve every active graph lane', () => {
   const stashRenderer = renderer.match(/function renderStashGraphRow[\s\S]*?(?=\nfunction renderWorkingTreeRow)/)?.[0] || '';
   assert.match(stashRenderer, /row\.before\.map/);

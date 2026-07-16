@@ -20,6 +20,7 @@ const state = {
   profileAssignmentType: null,
   externalEditorCommand: '',
   branchCreation: { startPoint: null, sourceLabel: '' },
+  tagCreation: { revision: null, sourceLabel: '', pending: false },
 };
 
 function loadHiddenStashHashes() {
@@ -399,12 +400,43 @@ function showTextPreview(kicker, title, content, isMarkup = false) {
   $('#close-diff-preview').addEventListener('click', closeDiffPreview);
 }
 
-async function createTagAt(revision, annotated) {
-  const name = window.prompt('Nom du tag :');
-  if (!name?.trim()) return;
-  const message = annotated ? window.prompt('Message du tag annoté :', name.trim()) : '';
-  if (annotated && !message?.trim()) return;
-  await executeRepositoryAction(`Tag ${name.trim()} créé`, () => window.forkline.createTag(name.trim(), revision, message || ''));
+function tagNameError(value) {
+  const name = value.trim();
+  if (!name) return 'Le nom du tag est obligatoire.';
+  if (state.snapshot.tags.some((tag) => tag.name === name)) return `Le tag « ${name} » existe déjà.`;
+  if (name === '@' || name.startsWith('-') || name.startsWith('.') || name.endsWith('.') || name.endsWith('/') || name.endsWith('.lock')
+    || name.includes('..') || name.includes('@{') || /[\x00-\x20\x7f~^:?*[\\]/.test(name)
+    || name.split('/').some((part) => !part || part.startsWith('.') || part.endsWith('.') || part.endsWith('.lock'))) return 'Ce nom de tag n’est pas valide.';
+  return '';
+}
+
+function renderTagDialogValidation(force = false) {
+  let error = tagNameError($('#tag-name').value);
+  if (!error && $('#tag-annotated').checked && !$('#tag-message').value.trim()) error = 'Le message du tag annoté est obligatoire.';
+  const hasInput = $('#tag-name').value || ($('#tag-annotated').checked && $('#tag-message').value);
+  const visibleError = force || hasInput ? error : '';
+  $('#tag-error').textContent = visibleError;
+  $('#tag-error').classList.toggle('hidden', !visibleError);
+  $('#tag-name').setAttribute('aria-invalid', error ? 'true' : 'false');
+  return error;
+}
+
+function updateTagDialogType() {
+  const annotated = $('#tag-annotated').checked;
+  $('#tag-message-field').classList.toggle('hidden', !annotated);
+  $('#confirm-tag').textContent = annotated ? 'Créer le tag annoté' : 'Créer le tag';
+  renderTagDialogValidation(false);
+}
+
+function createTagAt(revision, annotated = false, sourceLabel = String(revision).slice(0, 7)) {
+  state.tagCreation = { revision, sourceLabel, pending: false };
+  $('#tag-source').textContent = sourceLabel;
+  $('#tag-name').value = '';
+  $('#tag-message').value = '';
+  $('#tag-annotated').checked = annotated;
+  updateTagDialogType();
+  $('#tag-dialog').showModal();
+  setTimeout(() => $('#tag-name').focus(), 50);
 }
 
 async function runBranchContextAction(operation, branchName) {
@@ -495,7 +527,7 @@ async function runBranchContextAction(operation, branchName) {
     renderCommits();
     return;
   }
-  if (operation === 'tag' || operation === 'annotated-tag') return createTagAt(branch.hash, operation === 'annotated-tag');
+  if (operation === 'tag' || operation === 'annotated-tag') return createTagAt(branch.hash, operation === 'annotated-tag', branch.name);
   if (operation === 'finish-flow') {
     const type = gitFlowBranchType(branchName);
     if (type && window.confirm(`Terminer la ${type} ${branchName} ? Cette opération fusionnera et supprimera la branche.`)) await executeRepositoryAction(`${branchName} terminée`, () => window.forkline.finishGitFlow(type, branchName));
@@ -555,7 +587,7 @@ async function runCommitContextAction(operation, commit) {
   if (operation === 'apply-patch') return executeRepositoryAction('Patch appliqué', () => window.forkline.applyPatch());
   if (operation === 'apply-patch-clipboard') return applyPatchFromClipboard();
   if (operation === 'compare') return showComparison(commit.hash, `${commit.shortHash} · ${commit.subject}`);
-  if (operation === 'tag' || operation === 'annotated-tag') return createTagAt(commit.hash, operation === 'annotated-tag');
+  if (operation === 'tag' || operation === 'annotated-tag') return createTagAt(commit.hash, operation === 'annotated-tag', commit.shortHash);
 }
 
 async function openInteractiveRebase(baseCommit) {
@@ -1936,7 +1968,10 @@ $('#new-branch').addEventListener('click', () => openBranchDialog());
 $('#toolbar-new-branch').addEventListener('click', () => openBranchDialog());
 $('#branch-name').addEventListener('input', () => renderBranchDialogValidation(false));
 $('#branch-checkout').addEventListener('change', updateBranchDialogAction);
-$('#new-tag').addEventListener('click', () => createTagAt(state.snapshot.headHash, false));
+$('#new-tag').addEventListener('click', () => createTagAt(state.snapshot.headHash, false, state.snapshot.head));
+$('#tag-name').addEventListener('input', () => renderTagDialogValidation(false));
+$('#tag-message').addEventListener('input', () => renderTagDialogValidation(false));
+$('#tag-annotated').addEventListener('change', updateTagDialogType);
 $('#new-remote').addEventListener('click', async () => {
   const name = window.prompt('Nom du dépôt distant :', 'origin');
   if (!name?.trim()) return;
@@ -2091,6 +2126,16 @@ $('#confirm-branch').addEventListener('click', async (event) => {
     console.error('[branch-create] renderer creation failed', JSON.stringify({ name, startPoint: state.branchCreation.startPoint, checkout }));
   }
   state.branchCreation.pending = false;
+});
+$('#confirm-tag').addEventListener('click', async (event) => {
+  event.preventDefault();
+  if (renderTagDialogValidation(true)) return $('#tag-name').focus();
+  const name = $('#tag-name').value.trim();
+  const message = $('#tag-annotated').checked ? $('#tag-message').value.trim() : '';
+  state.tagCreation.pending = true;
+  const result = await executeRepositoryAction(`Tag ${name} créé`, () => window.forkline.createTag(name, state.tagCreation.revision, message));
+  state.tagCreation.pending = false;
+  if (result) $('#tag-dialog').close();
 });
 
 window.forkline.onRepositoryUpdated(handleRepositoryUpdate);

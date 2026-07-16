@@ -444,6 +444,10 @@ test('creates lightweight and annotated tags and compares a revision', async () 
   assert.equal(tags.find((tag) => tag.name === 'v1.0.1').annotated, true);
   assert.match(await git.compareWithWorktree(initialHash), /\+Comparison/);
 
+  await assert.rejects(() => git.createTag('v1.0.0', initialHash), /existe déjà/);
+  await assert.rejects(() => git.createTag('nom de tag invalide', initialHash), /Nom de tag invalide/);
+  assert.deepEqual((await git.tags()).map((tag) => tag.name), ['v1.0.0', 'v1.0.1']);
+
   await git.deleteTag('v1.0.0');
   assert.deepEqual((await git.tags()).map((tag) => tag.name), ['v1.0.1']);
 });

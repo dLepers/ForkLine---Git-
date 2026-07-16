@@ -1230,11 +1230,10 @@ class GitService {
   }
 
   async createTag(name, revision, message = '') {
-    if (typeof name !== 'string' || !name.trim() || name.startsWith('-')) throw new GitError('Nom de tag invalide.');
-    await this.run(['check-ref-format', `refs/tags/${name.trim()}`]);
+    const tagName = await this.validateNewTagName(name);
     await this.validateRevision(revision);
     const cleanMessage = String(message || '').trim();
-    return this.run(['tag', ...(cleanMessage ? ['-a', name.trim(), '-m', cleanMessage] : [name.trim()]), revision]);
+    return this.run(['tag', ...(cleanMessage ? ['-a', tagName, '-m', cleanMessage] : [tagName]), revision]);
   }
 
   async deleteTag(name) {
@@ -1373,8 +1372,21 @@ class GitService {
   async validateTagName(name, requireExisting = false) {
     if (typeof name !== 'string' || !name.trim() || name.startsWith('-')) throw new GitError('Nom de tag invalide.');
     if (requireExisting) await this.run(['rev-parse', '--verify', `refs/tags/${name.trim()}`]);
-    else await this.run(['check-ref-format', `refs/tags/${name.trim()}`]);
+    else {
+      try {
+        await this.run(['check-ref-format', `refs/tags/${name.trim()}`]);
+      } catch {
+        throw new GitError('Nom de tag invalide.');
+      }
+    }
     return name.trim();
+  }
+
+  async validateNewTagName(name) {
+    const tagName = await this.validateTagName(name, false);
+    const existingRefs = await this.run(['for-each-ref', '--format=%(refname)', `refs/tags/${tagName}`]);
+    if (existingRefs.split('\n').includes(`refs/tags/${tagName}`)) throw new GitError(`Le tag « ${tagName} » existe déjà.`);
+    return tagName;
   }
 
   async validateBranchName(name, allowExisting) {
