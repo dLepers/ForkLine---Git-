@@ -248,10 +248,18 @@ test('manages a branch lifecycle from a selected revision', async () => {
 
   await git.createBranch('feature/lifecycle', initialHash);
   assert.equal((await git.snapshot()).head, 'feature/lifecycle');
+  await assert.rejects(() => git.renameBranch('feature/lifecycle', 'feature/lifecycle'), /différent/);
+  await assert.rejects(() => git.renameBranch('feature/lifecycle', 'nom invalide'), /Nom de branche invalide/);
+  await assert.rejects(() => git.renameBranch('feature/lifecycle', 'main'), /existe déjà/);
+  assert.equal((await git.snapshot()).head, 'feature/lifecycle');
   await git.renameBranch('feature/lifecycle', 'feature/renamed');
   assert.equal((await git.snapshot()).head, 'feature/renamed');
 
   await git.switchBranch('main');
+  await git.renameBranch('feature/renamed', 'feature/inactive-renamed');
+  assert.equal((await git.snapshot()).head, 'main');
+  assert.equal((await git.snapshot()).branches.some((branch) => branch.name === 'feature/inactive-renamed'), true);
+  await git.renameBranch('feature/inactive-renamed', 'feature/renamed');
   await git.deleteBranch('feature/renamed');
   assert.equal((await git.snapshot()).branches.some((branch) => branch.name === 'feature/renamed'), false);
 });
@@ -482,6 +490,12 @@ test('adds, renames, fetches and removes a remote', async () => {
     assert.equal((await git.remotes())[0].name, 'upstream');
     await git.push({ remote: 'upstream', branch: 'main', setUpstream: true });
     assert.match((await exec('git', ['--git-dir', remoteRepository, 'show-ref', '--verify', 'refs/heads/main'], { encoding: 'utf8' })).stdout, /refs\/heads\/main/);
+    await command(['branch', '--unset-upstream', 'main']);
+    assert.equal((await git.snapshot()).branches.find((branch) => branch.name === 'main').upstream, '');
+    await git.setUpstream('main', 'upstream', 'main');
+    assert.equal((await git.snapshot()).branches.find((branch) => branch.name === 'main').upstream, 'upstream/main');
+    await assert.rejects(() => git.setUpstream('main', 'upstream', 'absente'), /n’existe pas/);
+    assert.equal((await git.snapshot()).branches.find((branch) => branch.name === 'main').upstream, 'upstream/main');
     await git.createTag('remote-test', (await git.snapshot()).headHash);
     await git.pushTag('remote-test', 'upstream');
     assert.match((await exec('git', ['--git-dir', remoteRepository, 'show-ref', '--verify', 'refs/tags/remote-test'], { encoding: 'utf8' })).stdout, /refs\/tags\/remote-test/);
@@ -506,10 +520,16 @@ test('pushes a branch to the explicitly selected remote', async () => {
     await git.addRemote('origin', originRepository);
     await git.addRemote('backup', backupRepository);
 
-    await git.pushBranch('main', { remote: 'backup' });
+    await git.pushBranch('main', { remote: 'backup', remoteBranch: 'published-main' });
 
     await assert.rejects(() => exec('git', ['--git-dir', originRepository, 'show-ref', '--verify', 'refs/heads/main'], { encoding: 'utf8' }));
-    assert.match((await exec('git', ['--git-dir', backupRepository, 'show-ref', '--verify', 'refs/heads/main'], { encoding: 'utf8' })).stdout, /refs\/heads\/main/);
+    assert.match((await exec('git', ['--git-dir', backupRepository, 'show-ref', '--verify', 'refs/heads/published-main'], { encoding: 'utf8' })).stdout, /refs\/heads\/published-main/);
+    assert.equal((await git.snapshot()).branches.find((branch) => branch.name === 'main').upstream, 'backup/published-main');
+    await fs.appendFile(path.join(repository, 'README.md'), 'Second push\n');
+    await git.stage(['README.md']);
+    await git.commit('Second push');
+    await git.pushBranch('main');
+    assert.equal((await exec('git', ['--git-dir', backupRepository, 'rev-parse', 'refs/heads/published-main'], { encoding: 'utf8' })).stdout.trim(), (await git.snapshot()).headHash);
     await assert.rejects(() => git.pushBranch('main', { remote: 'missing' }), /n’existe pas/);
   } finally {
     await fs.rm(originRepository, { recursive: true, force: true });

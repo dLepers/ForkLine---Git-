@@ -62,7 +62,7 @@ contextBridge.exposeInMainWorld('forkline', {
   renameBranch: (oldName, newName) => invoke('repository:rename-branch', oldName, newName),
   deleteBranch: (name, force = false) => invoke('repository:delete-branch', name, force),
   deleteBranchWithRemote: (name, upstream) => invoke('repository:delete-branch-with-remote', name, upstream),
-  setUpstream: (branch, upstream) => invoke('repository:set-upstream', branch, upstream),
+  setUpstream: (branch, remote, remoteBranch) => invoke('repository:set-upstream', branch, remote, remoteBranch),
   checkoutRemoteBranch: (remoteBranch, localName = null) => invoke('repository:checkout-remote-branch', remoteBranch, localName),
   pushBranch: (branch, options = {}) => invoke('repository:push-branch', branch, options),
   addRemote: (name, url) => invoke('repository:add-remote', name, url),

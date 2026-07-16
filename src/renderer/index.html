@@ -156,6 +156,16 @@
         <div class="dialog-actions"><button value="cancel" class="button">Annuler</button><button id="confirm-branch" value="default" class="button button-primary">Créer et basculer</button></div>
       </form>
     </dialog>
+    <dialog id="rename-branch-dialog">
+      <form method="dialog">
+        <p class="eyebrow">RENOMMER LA BRANCHE</p>
+        <h3>Renommer <span id="rename-branch-source"></span></h3>
+        <label for="rename-branch-name">Nouveau nom</label>
+        <input id="rename-branch-name" autocomplete="off" aria-describedby="rename-branch-error">
+        <p id="rename-branch-error" class="dialog-error hidden" role="alert"></p>
+        <div class="dialog-actions"><button value="cancel" class="button">Annuler</button><button id="confirm-rename-branch" value="default" class="button button-primary">Renommer</button></div>
+      </form>
+    </dialog>
     <dialog id="tag-dialog">
       <form method="dialog">
         <p class="eyebrow">NOUVEAU TAG</p>
@@ -169,6 +179,20 @@
           <textarea id="tag-message" rows="3" placeholder="Décrire cette version…"></textarea>
         </div>
         <div class="dialog-actions"><button value="cancel" class="button">Annuler</button><button id="confirm-tag" value="default" class="button button-primary">Créer le tag</button></div>
+      </form>
+    </dialog>
+    <dialog id="upstream-dialog">
+      <form method="dialog">
+        <p id="upstream-dialog-kicker" class="eyebrow">BRANCHE DISTANTE SUIVIE</p>
+        <h3><span id="upstream-dialog-title">Configurer</span> <span id="upstream-local-branch"></span></h3>
+        <p id="upstream-dialog-help" class="dialog-help">Choisissez la branche utilisée par défaut pour les opérations Pull et Push.</p>
+        <label for="upstream-remote">Dépôt distant</label>
+        <select id="upstream-remote"></select>
+        <label for="upstream-branch">Branche distante</label>
+        <input id="upstream-branch" list="upstream-branch-options" autocomplete="off" aria-describedby="upstream-error">
+        <datalist id="upstream-branch-options"></datalist>
+        <p id="upstream-error" class="dialog-error hidden" role="alert"></p>
+        <div class="dialog-actions"><button value="cancel" class="button">Annuler</button><button id="confirm-upstream" value="default" class="button button-primary">Définir la branche suivie</button></div>
       </form>
     </dialog>
     <dialog id="stash-dialog">

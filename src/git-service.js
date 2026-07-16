@@ -1039,8 +1039,11 @@ class GitService {
 
   async renameBranch(oldName, newName) {
     await this.validateBranchName(oldName, true);
-    await this.validateBranchName(newName, false);
-    return this.run(['branch', '-m', oldName, newName]);
+    const sourceName = oldName.trim();
+    await this.run(['rev-parse', '--verify', `refs/heads/${sourceName}`]);
+    if (typeof newName === 'string' && sourceName === newName.trim()) throw new GitError('Le nouveau nom doit être différent du nom actuel.');
+    const targetName = await this.validateNewBranchName(newName);
+    return this.run(['branch', '-m', sourceName, targetName]);
   }
 
   async deleteBranch(name, force = false) {
@@ -1065,10 +1068,19 @@ class GitService {
     return this.run(['branch', '-D', name]);
   }
 
-  async setUpstream(branch, upstream) {
+  async setUpstream(branch, remote, remoteBranch) {
     await this.validateBranchName(branch, true);
-    if (typeof upstream !== 'string' || upstream.startsWith('-')) throw new GitError('Branche distante invalide.');
-    await this.run(['rev-parse', '--verify', `refs/remotes/${upstream}`]);
+    if (typeof remote !== 'string' || !remote.trim() || remote.startsWith('-')) throw new GitError('Dépôt distant invalide.');
+    const remoteName = remote.trim();
+    const remotes = (await this.run(['remote'])).split('\n').filter(Boolean);
+    if (!remotes.includes(remoteName)) throw new GitError(`Le dépôt distant « ${remoteName} » n’existe pas.`);
+    const branchName = await this.validateRemoteBranchName(remoteBranch);
+    const upstream = `${remoteName}/${branchName}`;
+    try {
+      await this.run(['rev-parse', '--verify', `refs/remotes/${upstream}^{commit}`]);
+    } catch {
+      throw new GitError(`La branche distante « ${upstream} » n’existe pas. Effectuez un Fetch ou publiez-la avant de la suivre.`);
+    }
     return this.run(['branch', `--set-upstream-to=${upstream}`, branch]);
   }
 
@@ -1082,11 +1094,16 @@ class GitService {
 
   async pushBranch(branch, options = {}) {
     await this.validateBranchName(branch, true);
+    await this.run(['rev-parse', '--verify', `refs/heads/${branch}^{commit}`]);
     const remotes = (await this.run(['remote'])).split('\n').filter(Boolean);
-    const remote = String(options.remote || '').trim() || remotes[0];
+    const currentUpstream = (await this.run(['for-each-ref', '--format=%(upstream:short)', `refs/heads/${branch}`])).trim();
+    const trackedRemote = [...remotes].sort((left, right) => right.length - left.length).find((candidate) => currentUpstream.startsWith(`${candidate}/`));
+    const trackedBranch = trackedRemote ? currentUpstream.slice(trackedRemote.length + 1) : '';
+    const remote = String(options.remote || '').trim() || trackedRemote || remotes[0];
     if (!remote) throw new GitError('Aucun dépôt distant n’est configuré.');
     if (!remotes.includes(remote)) throw new GitError(`Le dépôt distant « ${remote} » n’existe pas.`);
-    return this.push({ ...options, remote, branch, setUpstream: true });
+    const remoteBranch = await this.validateRemoteBranchName(options.remoteBranch || trackedBranch || branch);
+    return this.push({ ...options, remote, branch, remoteBranch, setUpstream: true });
   }
 
   async addRemote(name, url) {
@@ -1415,6 +1432,17 @@ class GitService {
     return branchName;
   }
 
+  async validateRemoteBranchName(name) {
+    if (typeof name !== 'string' || !name.trim() || name.startsWith('-')) throw new GitError('Nom de branche distante invalide.');
+    const branchName = name.trim();
+    try {
+      await this.run(['check-ref-format', `refs/heads/${branchName}`]);
+    } catch {
+      throw new GitError('Nom de branche distante invalide.');
+    }
+    return branchName;
+  }
+
   async fetch() { return this.run(['fetch', '--all', '--prune']); }
 
   async pull(options = {}) {
@@ -1445,7 +1473,10 @@ class GitService {
       args.push(options.remote);
       if (options.branch) {
         await this.validateBranchName(options.branch, true);
-        args.push(options.branch);
+        if (options.remoteBranch) {
+          const remoteBranch = await this.validateRemoteBranchName(options.remoteBranch);
+          args.push(`${options.branch}:${remoteBranch}`);
+        } else args.push(options.branch);
       }
     }
     return this.run(args);

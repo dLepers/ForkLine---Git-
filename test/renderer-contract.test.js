@@ -87,3 +87,30 @@ test('branch context actions follow the selected branch state and update graph v
   assert.match(renderer, /data-graph-branch/);
   assert.match(renderer, /showBranchContextMenu\(label\.dataset\.graphBranch/);
 });
+
+test('setting an upstream uses a validated dialog and keeps remote and branch separate', () => {
+  assert.match(renderer, /return openUpstreamDialog\(branch\)/);
+  assert.match(renderer, /window\.forkline\.setUpstream\(state\.upstreamAssignment\.branch, remote, remoteBranch\)/);
+  assert.match(renderer, /remoteBranchNames\(remote\)\.includes\(branch\)/);
+  assert.match(html, /id="upstream-dialog"/);
+  assert.match(html, /id="upstream-error"[^>]*role="alert"/);
+  assert.doesNotMatch(renderer, /prompt\('Branche distante suivie/);
+});
+
+test('a first push opens the publish dialog and configures the selected destination', () => {
+  const pushToRemote = renderer.match(/async function pushToRemote[\s\S]*?(?=\n\n\$\('#fetch'\))/)?.[0] || '';
+  assert.match(renderer, /if \(!upstream\) return openUpstreamDialog\(branch, 'publish', options\)/);
+  assert.match(renderer, /window\.forkline\.pushBranch\(state\.upstreamAssignment\.branch, \{ \.\.\.state\.upstreamAssignment\.pushOptions, remote, remoteBranch \}\)/);
+  assert.match(renderer, /\$\('#push'\)\.addEventListener\('click', \(\) => pushBranchFromUi/);
+  assert.match(renderer, /Forkline créera la branche distante et configurera son suivi/);
+  assert.doesNotMatch(pushToRemote, /window\.prompt/);
+});
+
+test('renaming a branch uses the selected branch and a validated persistent dialog', () => {
+  assert.match(renderer, /return openRenameBranchDialog\(branch\)/);
+  assert.match(renderer, /window\.forkline\.renameBranch\(originalName, newName\)/);
+  assert.match(renderer, /branchNameError\(value, state\.branchRename\.originalName\)/);
+  assert.match(html, /id="rename-branch-dialog"/);
+  assert.match(html, /id="rename-branch-error"[^>]*role="alert"/);
+  assert.doesNotMatch(renderer, /prompt\('Nouveau nom de la branche/);
+});

@@ -20,7 +20,9 @@ const state = {
   profileAssignmentType: null,
   externalEditorCommand: '',
   branchCreation: { startPoint: null, sourceLabel: '' },
+  branchRename: { originalName: null, pending: false },
   tagCreation: { revision: null, sourceLabel: '', pending: false },
+  upstreamAssignment: { branch: null, mode: 'track', pushOptions: {}, pending: false },
 };
 
 function loadHiddenStashHashes() {
@@ -439,6 +441,78 @@ function createTagAt(revision, annotated = false, sourceLabel = String(revision)
   setTimeout(() => $('#tag-name').focus(), 50);
 }
 
+function remoteBranchNames(remoteName) {
+  const prefix = `${remoteName}/`;
+  return state.snapshot.branches
+    .filter((branch) => branch.remote && branch.name.startsWith(prefix))
+    .map((branch) => branch.name.slice(prefix.length))
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function selectedUpstreamParts(branch) {
+  const remote = [...(state.snapshot.remotes || [])]
+    .sort((left, right) => right.name.length - left.name.length)
+    .find((candidate) => branch.upstream?.startsWith(`${candidate.name}/`));
+  return remote ? { remote: remote.name, branch: branch.upstream.slice(remote.name.length + 1) } : null;
+}
+
+function upstreamDialogError() {
+  const remote = $('#upstream-remote').value;
+  const branch = $('#upstream-branch').value.trim();
+  if (!(state.snapshot.remotes || []).some((candidate) => candidate.name === remote)) return 'Sélectionnez un dépôt distant valide.';
+  if (!branch) return 'Le nom de la branche distante est obligatoire.';
+  if (branch.startsWith('-') || branch.startsWith('.') || branch.endsWith('.') || branch.endsWith('/') || branch.endsWith('.lock')
+    || branch.includes('..') || branch.includes('@{') || /[\x00-\x20\x7f~^:?*[\\]/.test(branch)
+    || branch.split('/').some((part) => !part || part.startsWith('.') || part.endsWith('.') || part.endsWith('.lock'))) return 'Ce nom de branche distante n’est pas valide.';
+  if (state.upstreamAssignment.mode === 'track' && !remoteBranchNames(remote).includes(branch)) return `La branche distante « ${remote}/${branch} » n’existe pas. Effectuez un Fetch ou publiez-la avant de la suivre.`;
+  return '';
+}
+
+function renderUpstreamDialogValidation(force = false) {
+  const error = upstreamDialogError();
+  const visibleError = force || $('#upstream-branch').value ? error : '';
+  $('#upstream-error').textContent = visibleError;
+  $('#upstream-error').classList.toggle('hidden', !visibleError);
+  $('#upstream-branch').setAttribute('aria-invalid', error ? 'true' : 'false');
+  return error;
+}
+
+function renderUpstreamBranchOptions() {
+  $('#upstream-branch-options').innerHTML = remoteBranchNames($('#upstream-remote').value)
+    .map((name) => `<option value="${escapeHtml(name)}"></option>`).join('');
+  renderUpstreamDialogValidation(false);
+}
+
+function openUpstreamDialog(branch, mode = 'track', pushOptions = {}) {
+  const remotes = state.snapshot.remotes || [];
+  if (!remotes.length) return toast('Aucun dépôt distant n’est configuré.', true);
+  const current = selectedUpstreamParts(branch);
+  const selectedRemote = current?.remote || remotes.find((remote) => remote.name === 'origin')?.name || remotes[0].name;
+  state.upstreamAssignment = { branch: branch.name, mode, pushOptions, pending: false };
+  const publishing = mode === 'publish';
+  $('#upstream-dialog-kicker').textContent = publishing ? 'PUBLIER LA BRANCHE' : 'BRANCHE DISTANTE SUIVIE';
+  $('#upstream-dialog-title').textContent = publishing ? 'Publier' : 'Configurer';
+  $('#upstream-dialog-help').textContent = publishing
+    ? 'Choisissez la destination. Forkline créera la branche distante et configurera son suivi.'
+    : 'Choisissez la branche utilisée par défaut pour les opérations Pull et Push.';
+  $('#confirm-upstream').textContent = publishing ? 'Publier et suivre' : 'Définir la branche suivie';
+  $('#upstream-local-branch').textContent = branch.name;
+  $('#upstream-remote').innerHTML = remotes.map((remote) => `<option value="${escapeHtml(remote.name)}">${escapeHtml(remote.name)}</option>`).join('');
+  $('#upstream-remote').value = selectedRemote;
+  $('#upstream-branch').value = current?.branch || branch.name;
+  renderUpstreamBranchOptions();
+  renderUpstreamDialogValidation(false);
+  $('#upstream-dialog').showModal();
+  setTimeout(() => $('#upstream-branch').focus(), 50);
+}
+
+function pushBranchFromUi(branch, options = {}) {
+  if (!branch) return toast('Aucune branche locale active à publier.', true);
+  const upstream = selectedUpstreamParts(branch);
+  if (!upstream) return openUpstreamDialog(branch, 'publish', options);
+  return executeRepositoryAction(`Branche ${branch.name} publiée`, () => window.forkline.pushBranch(branch.name, { ...options, remote: upstream.remote, remoteBranch: upstream.branch }));
+}
+
 async function runBranchContextAction(operation, branchName) {
   const branch = state.snapshot.branches.find((candidate) => !candidate.remote && candidate.name === branchName);
   if (!branch) return;
@@ -479,20 +553,13 @@ async function runBranchContextAction(operation, branchName) {
     return;
   }
   if (operation === 'push') {
-    const remote = [...(state.snapshot.remotes || [])]
-      .sort((left, right) => right.name.length - left.name.length)
-      .find((candidate) => branch.upstream?.startsWith(`${candidate.name}/`));
-    return executeRepositoryAction(`Branche ${branchName} publiée`, () => window.forkline.pushBranch(branchName, remote ? { remote: remote.name } : {}));
+    return pushBranchFromUi(branch);
   }
   if (operation === 'upstream') {
-    const upstream = window.prompt('Branche distante suivie :', branch.upstream || `origin/${branchName}`);
-    if (upstream?.trim()) await executeRepositoryAction('Branche distante associée', () => window.forkline.setUpstream(branchName, upstream.trim()));
-    return;
+    return openUpstreamDialog(branch);
   }
   if (operation === 'rename') {
-    const name = window.prompt('Nouveau nom de la branche :', branchName);
-    if (name?.trim() && name.trim() !== branchName) await executeRepositoryAction(`Branche renommée en ${name.trim()}`, () => window.forkline.renameBranch(branchName, name.trim()));
-    return;
+    return openRenameBranchDialog(branch);
   }
   if (operation === 'copy') return copyText(branchName, 'Nom de branche copié');
   if (operation === 'delete') {
@@ -1854,9 +1921,8 @@ $('#commit-amend').addEventListener('change', (event) => {
   if (event.target.checked && !$('#commit-message').value.trim()) $('#commit-message').value = state.snapshot.commits.find((commit) => commit.hash === state.snapshot.headHash)?.subject || '';
 });
 
-for (const operation of ['pull', 'push']) {
-  $(`#${operation}`).addEventListener('click', () => executeRepositoryAction(`${operation[0].toUpperCase()}${operation.slice(1)} terminé`, () => window.forkline[operation]()));
-}
+$('#pull').addEventListener('click', () => executeRepositoryAction('Pull terminé', () => window.forkline.pull()));
+$('#push').addEventListener('click', () => pushBranchFromUi(state.snapshot.branches.find((branch) => !branch.remote && branch.current)));
 
 $('#pull').addEventListener('contextmenu', (event) => {
   event.preventDefault();
@@ -1871,9 +1937,9 @@ $('#pull').addEventListener('contextmenu', (event) => {
 $('#push').addEventListener('contextmenu', (event) => {
   event.preventDefault();
   showSimpleContextMenu('Options de Push', [
-    { id: 'normal', icon: '↑', label: 'Push', run: () => executeRepositoryAction('Push terminé', () => window.forkline.push()) },
-    { id: 'tags', icon: '◇', label: 'Push avec tous les tags', run: () => executeRepositoryAction('Commits et tags publiés', () => window.forkline.push({ tags: true })) },
-    { id: 'force-lease', icon: '⇡', label: 'Force push sécurisé (with lease)', run: async () => { if (window.confirm('Réécrire la branche distante avec --force-with-lease ?')) await executeRepositoryAction('Force push sécurisé terminé', () => window.forkline.push({ forceWithLease: true })); } },
+    { id: 'normal', icon: '↑', label: 'Push', run: () => pushBranchFromUi(state.snapshot.branches.find((branch) => !branch.remote && branch.current)) },
+    { id: 'tags', icon: '◇', label: 'Push avec tous les tags', run: () => pushBranchFromUi(state.snapshot.branches.find((branch) => !branch.remote && branch.current), { tags: true }) },
+    { id: 'force-lease', icon: '⇡', label: 'Force push sécurisé (with lease)', run: async () => { if (window.confirm('Réécrire la branche distante avec --force-with-lease ?')) await pushBranchFromUi(state.snapshot.branches.find((branch) => !branch.remote && branch.current), { forceWithLease: true }); } },
     { id: 'to', icon: '☁', label: 'Push vers un remote…', run: () => pushToRemote() },
   ], event.clientX, event.clientY);
 });
@@ -1890,12 +1956,9 @@ async function pullFromRemote() {
 }
 
 async function pushToRemote() {
-  const defaultRemote = state.snapshot.remotes[0]?.name || '';
-  const remote = window.prompt('Dépôt distant :', defaultRemote);
-  if (!remote?.trim()) return;
-  const branch = window.prompt('Branche locale à publier :', state.snapshot.head);
-  if (!branch?.trim()) return;
-  await executeRepositoryAction('Push terminé', () => window.forkline.push({ remote: remote.trim(), branch: branch.trim(), setUpstream: true }));
+  const branch = state.snapshot.branches.find((candidate) => !candidate.remote && candidate.current);
+  if (!branch) return toast('Aucune branche locale active à publier.', true);
+  return openUpstreamDialog(branch, 'publish');
 }
 
 $('#fetch').addEventListener('click', () => executeRepositoryAction('Références distantes récupérées', () => window.forkline.fetch()));
@@ -1930,14 +1993,42 @@ async function applyPatchFromClipboard() {
   return executeRepositoryAction('Patch du presse-papiers appliqué', () => window.forkline.applyPatchContent(patch));
 }
 
-function branchNameError(value) {
+function branchNameError(value, allowedExistingName = null) {
   const name = value.trim();
   if (!name) return 'Le nom de la branche est obligatoire.';
-  if (state.snapshot.branches.some((branch) => !branch.remote && branch.name === name)) return `La branche « ${name} » existe déjà.`;
+  if (state.snapshot.branches.some((branch) => !branch.remote && branch.name === name) && name !== allowedExistingName) return `La branche « ${name} » existe déjà.`;
   if (name === '@' || name.startsWith('-') || name.startsWith('.') || name.endsWith('.') || name.endsWith('/') || name.endsWith('.lock')
     || name.includes('..') || name.includes('@{') || /[\x00-\x20\x7f~^:?*[\\]/.test(name)
     || name.split('/').some((part) => !part || part.startsWith('.') || part.endsWith('.') || part.endsWith('.lock'))) return 'Ce nom de branche n’est pas valide.';
   return '';
+}
+
+function renameBranchError(value) {
+  const name = value.trim();
+  if (name === state.branchRename.originalName) return 'Le nouveau nom doit être différent du nom actuel.';
+  return branchNameError(value, state.branchRename.originalName);
+}
+
+function renderRenameBranchValidation(force = false) {
+  const error = renameBranchError($('#rename-branch-name').value);
+  const hasChanged = $('#rename-branch-name').value.trim() !== state.branchRename.originalName;
+  const visibleError = force || hasChanged ? error : '';
+  $('#rename-branch-error').textContent = visibleError;
+  $('#rename-branch-error').classList.toggle('hidden', !visibleError);
+  $('#rename-branch-name').setAttribute('aria-invalid', visibleError ? 'true' : 'false');
+  return error;
+}
+
+function openRenameBranchDialog(branch) {
+  state.branchRename = { originalName: branch.name, pending: false };
+  $('#rename-branch-source').textContent = branch.name;
+  $('#rename-branch-name').value = branch.name;
+  renderRenameBranchValidation(false);
+  $('#rename-branch-dialog').showModal();
+  setTimeout(() => {
+    $('#rename-branch-name').focus();
+    $('#rename-branch-name').select();
+  }, 50);
 }
 
 function renderBranchDialogValidation(force = false) {
@@ -1968,10 +2059,13 @@ $('#new-branch').addEventListener('click', () => openBranchDialog());
 $('#toolbar-new-branch').addEventListener('click', () => openBranchDialog());
 $('#branch-name').addEventListener('input', () => renderBranchDialogValidation(false));
 $('#branch-checkout').addEventListener('change', updateBranchDialogAction);
+$('#rename-branch-name').addEventListener('input', () => renderRenameBranchValidation(false));
 $('#new-tag').addEventListener('click', () => createTagAt(state.snapshot.headHash, false, state.snapshot.head));
 $('#tag-name').addEventListener('input', () => renderTagDialogValidation(false));
 $('#tag-message').addEventListener('input', () => renderTagDialogValidation(false));
 $('#tag-annotated').addEventListener('change', updateTagDialogType);
+$('#upstream-remote').addEventListener('change', renderUpstreamBranchOptions);
+$('#upstream-branch').addEventListener('input', () => renderUpstreamDialogValidation(false));
 $('#new-remote').addEventListener('click', async () => {
   const name = window.prompt('Nom du dépôt distant :', 'origin');
   if (!name?.trim()) return;
@@ -2127,6 +2221,18 @@ $('#confirm-branch').addEventListener('click', async (event) => {
   }
   state.branchCreation.pending = false;
 });
+$('#confirm-rename-branch').addEventListener('click', async (event) => {
+  event.preventDefault();
+  if (state.branchRename.pending || renderRenameBranchValidation(true)) return $('#rename-branch-name').focus();
+  const originalName = state.branchRename.originalName;
+  const newName = $('#rename-branch-name').value.trim();
+  state.branchRename.pending = true;
+  $('#confirm-rename-branch').disabled = true;
+  const result = await executeRepositoryAction(`Branche renommée en ${newName}`, () => window.forkline.renameBranch(originalName, newName));
+  state.branchRename.pending = false;
+  $('#confirm-rename-branch').disabled = false;
+  if (result) $('#rename-branch-dialog').close();
+});
 $('#confirm-tag').addEventListener('click', async (event) => {
   event.preventDefault();
   if (renderTagDialogValidation(true)) return $('#tag-name').focus();
@@ -2136,6 +2242,21 @@ $('#confirm-tag').addEventListener('click', async (event) => {
   const result = await executeRepositoryAction(`Tag ${name} créé`, () => window.forkline.createTag(name, state.tagCreation.revision, message));
   state.tagCreation.pending = false;
   if (result) $('#tag-dialog').close();
+});
+$('#confirm-upstream').addEventListener('click', async (event) => {
+  event.preventDefault();
+  if (state.upstreamAssignment.pending || renderUpstreamDialogValidation(true)) return $('#upstream-branch').focus();
+  const remote = $('#upstream-remote').value;
+  const remoteBranch = $('#upstream-branch').value.trim();
+  state.upstreamAssignment.pending = true;
+  $('#confirm-upstream').disabled = true;
+  const publishing = state.upstreamAssignment.mode === 'publish';
+  const result = publishing
+    ? await executeRepositoryAction(`Branche ${state.upstreamAssignment.branch} publiée`, () => window.forkline.pushBranch(state.upstreamAssignment.branch, { ...state.upstreamAssignment.pushOptions, remote, remoteBranch }))
+    : await executeRepositoryAction('Branche distante associée', () => window.forkline.setUpstream(state.upstreamAssignment.branch, remote, remoteBranch));
+  state.upstreamAssignment.pending = false;
+  $('#confirm-upstream').disabled = false;
+  if (result) $('#upstream-dialog').close();
 });
 
 window.forkline.onRepositoryUpdated(handleRepositoryUpdate);

@@ -419,7 +419,7 @@ app.whenReady().then(() => {
   handle('repository:rename-branch', async (oldName, newName) => (await repositoryWatcher.mutate(() => git.renameBranch(oldName, newName))).snapshot);
   handle('repository:delete-branch', async (name, force) => (await repositoryWatcher.mutate(() => git.deleteBranch(name, force))).snapshot);
   handle('repository:delete-branch-with-remote', async (name, upstream) => (await repositoryWatcher.mutate(() => git.deleteBranchWithRemote(name, upstream))).snapshot);
-  handle('repository:set-upstream', async (branch, upstream) => (await repositoryWatcher.mutate(() => git.setUpstream(branch, upstream))).snapshot);
+  handle('repository:set-upstream', async (branch, remote, remoteBranch) => (await repositoryWatcher.mutate(() => git.setUpstream(branch, remote, remoteBranch))).snapshot);
   handle('repository:checkout-remote-branch', async (remoteBranch, localName) => (await repositoryWatcher.mutate(() => git.checkoutRemoteBranch(remoteBranch, localName))).snapshot);
   handle('repository:push-branch', async (branch, options) => repositoryWatcher.mutate(() => git.pushBranch(branch, options)));
   handle('repository:add-remote', async (name, url) => (await repositoryWatcher.mutate(() => git.addRemote(name, url))).snapshot);
