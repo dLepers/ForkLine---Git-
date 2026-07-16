@@ -78,6 +78,9 @@ button { cursor: pointer; }
 .branch-symbol i { position: absolute; left: 0; top: 0; width: 8px; height: 8px; border: 2px solid #6c7169; border-radius: 50%; background: var(--ink-soft); }
 .branch-item.current { color: #fff; font-weight: 700; background: rgba(79,140,255,.12); }
 .branch-item.solo { box-shadow: inset 2px 0 var(--branch-color, #8b7cf6); background: rgba(139,124,246,.1); }
+.solo-mode-status { margin: 6px 8px 2px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid rgba(139,124,246,.38); border-radius: 4px; color: #c8c0ff; background: rgba(139,124,246,.12); }
+.solo-mode-status span { font-size: 8px; font-weight: 800; letter-spacing: .14em; }
+.solo-mode-status strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .branch-visibility-action { width: 100%; padding: 7px 9px; border: 0; color: #8ea9d6; background: transparent; text-align: left; font-size: 11px; }
 .branch-visibility-action:hover { color: #c0d4f4; background: rgba(79,140,255,.08); }
 .branch-current { width: 14px; flex: 0 0 14px; color: var(--branch-color, var(--accent)); font-size: 15px; font-weight: 800; line-height: 1; text-align: center; }

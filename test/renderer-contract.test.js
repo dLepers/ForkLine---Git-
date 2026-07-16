@@ -82,10 +82,18 @@ test('branch context actions follow the selected branch state and update graph v
   assert.match(branchMenu, /branch\.upstream === `\$\{remote\.name\}\/\$\{branch\.name\}`/);
   assert.match(branchMenu, /id: 'solo'/);
   assert.match(branchMenu, /id: 'hide'/);
-  assert.match(renderer, /operation === 'solo'[\s\S]*renderBranches\(\);[\s\S]*renderCommits\(\)/);
+  assert.match(renderer, /operation === 'solo'[\s\S]*renderBranches\(\);[\s\S]*renderRemotes\(\);[\s\S]*renderCommits\(\)/);
   assert.match(renderer, /operation === 'hide'[\s\S]*saveHiddenBranchNames\(\);[\s\S]*renderCommits\(\)/);
   assert.match(renderer, /data-graph-branch/);
   assert.match(renderer, /showBranchContextMenu\(label\.dataset\.graphBranch/);
+});
+
+test('solo mode isolates local and remote sidebars and can restore every branch', () => {
+  assert.match(renderer, /!state\.soloBranchName \|\| branch\.name === state\.soloBranchName/);
+  assert.match(renderer, /visibleRemoteNames\.has\(branch\.name\)/);
+  assert.match(renderer, /class="solo-mode-status"/);
+  assert.match(renderer, /data-branch-visibility="stop-solo"/);
+  assert.match(renderer, /branchVisibility === 'stop-solo'\) state\.soloBranchName = null;[\s\S]*renderRemotes\(\)/);
 });
 
 test('setting an upstream uses a validated dialog and keeps remote and branch separate', () => {

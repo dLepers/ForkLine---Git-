@@ -201,11 +201,11 @@ function renderBranches() {
   if (activeBranch && state.hiddenBranchNames.delete(activeBranch.name)) hiddenBranchesChanged = true;
   if (hiddenBranchesChanged) saveHiddenBranchNames();
   if (state.soloBranchName && !existingNames.has(state.soloBranchName)) state.soloBranchName = null;
-  const local = allLocal.filter((branch) => !state.hiddenBranchNames.has(branch.name));
+  const local = allLocal.filter((branch) => !state.hiddenBranchNames.has(branch.name) && (!state.soloBranchName || branch.name === state.soloBranchName));
   const commits = visibleGraphCommits();
   const graphBranches = visibleGraphBranches();
   const graph = window.ForklineGraph.layoutCommitGraph(commits, { headHash: state.snapshot.headHash, branches: graphBranches });
-  const controls = `${state.soloBranchName ? '<button type="button" class="branch-visibility-action" data-branch-visibility="stop-solo">Afficher toutes les branches</button>' : ''}${state.hiddenBranchNames.size ? `<button type="button" class="branch-visibility-action" data-branch-visibility="show-hidden">Afficher ${state.hiddenBranchNames.size} branche${state.hiddenBranchNames.size > 1 ? 's' : ''} masquée${state.hiddenBranchNames.size > 1 ? 's' : ''}</button>` : ''}`;
+  const controls = `${state.soloBranchName ? `<div class="solo-mode-status"><span>MODE SOLO</span><strong>${escapeHtml(state.soloBranchName)}</strong></div><button type="button" class="branch-visibility-action" data-branch-visibility="stop-solo">Afficher toutes les branches</button>` : ''}${state.hiddenBranchNames.size ? `<button type="button" class="branch-visibility-action" data-branch-visibility="show-hidden">Afficher ${state.hiddenBranchNames.size} branche${state.hiddenBranchNames.size > 1 ? 's' : ''} masquée${state.hiddenBranchNames.size > 1 ? 's' : ''}</button>` : ''}`;
   $('#branches').innerHTML = `${local.map((branch) => `
     <button class="branch-item${branch.current ? ' current' : ''}${state.soloBranchName === branch.name ? ' solo' : ''}" style="--branch-color: ${graphColorForHash(graph, branch.hash, commits)}" data-branch="${escapeHtml(branch.name)}" title="${escapeHtml(branchSyncDetails(branch).tooltip)}" aria-label="${escapeHtml(`${branch.name} : ${branchSyncDetails(branch).tooltip}`)}">
       ${branch.current ? '<span class="branch-current" aria-label="Branche active">✓</span>' : ''}<span class="branch-symbol"><i></i></span><span>${escapeHtml(branch.name)}</span>${renderBranchSync(branch)}
@@ -223,6 +223,7 @@ function renderBranches() {
       saveHiddenBranchNames();
     }
     renderBranches();
+    renderRemotes();
     renderCommits();
   }));
 }
@@ -583,6 +584,7 @@ async function runBranchContextAction(operation, branchName) {
   if (operation === 'solo') {
     state.soloBranchName = state.soloBranchName === branchName ? null : branchName;
     renderBranches();
+    renderRemotes();
     renderCommits();
     return;
   }
@@ -591,6 +593,7 @@ async function runBranchContextAction(operation, branchName) {
     saveHiddenBranchNames();
     if (state.soloBranchName === branchName) state.soloBranchName = null;
     renderBranches();
+    renderRemotes();
     renderCommits();
     return;
   }
@@ -704,11 +707,14 @@ function renderBranchSync(branch) {
 }
 
 function renderRemotes() {
-  const remoteBranches = state.snapshot.branches.filter((branch) => branch.remote && !branch.symbolic && !branch.name.includes('HEAD'));
+  const visibleRemoteNames = new Set(visibleGraphBranches().filter((branch) => branch.remote).map((branch) => branch.name));
+  const remoteBranches = state.snapshot.branches.filter((branch) => branch.remote && !branch.symbolic && !branch.name.includes('HEAD')
+    && (!state.soloBranchName || visibleRemoteNames.has(branch.name)));
   $('#remotes').innerHTML = state.snapshot.remotes.length
     ? state.snapshot.remotes.map((remote) => {
       const prefix = `${remote.name}/`;
       const branches = remoteBranches.filter((branch) => branch.name.startsWith(prefix));
+      if (state.soloBranchName && !branches.length) return '';
       return `<div class="remote-group" data-remote="${escapeHtml(remote.name)}" title="${escapeHtml(remote.fetchUrl || '')}">
         <button type="button" class="remote-item" data-remote="${escapeHtml(remote.name)}"><span class="remote-glyph">⌁</span><span>${escapeHtml(remote.name)}</span><b>${branches.length}</b></button>
         ${branches.map((branch) => `<button type="button" class="remote-branch" data-remote-branch="${escapeHtml(branch.name)}"><span class="branch-symbol"><i></i></span><span>${escapeHtml(branch.name.slice(prefix.length))}</span></button>`).join('')}
