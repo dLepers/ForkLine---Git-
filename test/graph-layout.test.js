@@ -2,22 +2,27 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { filterGraphVisibility, layoutCommitGraph } = require('../src/renderer/graph-layout');
 
-test('keeps a descendant branch and the active branch on the same linear lane', () => {
+test('keeps descendant branch tips parallel to the active branch until HEAD', () => {
   const graph = layoutCommitGraph([
-    { hash: 'master-tip', parents: ['active-tip'] },
+    { hash: 'master-tip', parents: ['between'] },
+    { hash: 'between', parents: ['feature-tip'] },
+    { hash: 'feature-tip', parents: ['active-tip'] },
     { hash: 'active-tip', parents: ['root'] },
     { hash: 'root', parents: [] },
   ], {
     headHash: 'active-tip',
+    showWorkingTree: true,
     branches: [
       { name: 'master', hash: 'master-tip', current: false },
-      { name: 'feature/new', hash: 'active-tip', current: true },
+      { name: 'feature/new', hash: 'feature-tip', current: false },
+      { name: 'work', hash: 'active-tip', current: true },
     ],
   });
 
-  assert.deepEqual(graph.rows.map((row) => row.lane), [0, 0, 0]);
-  assert.equal(graph.laneCount, 1);
-  assert.deepEqual(graph.rows[0].connections.map(({ from, to }) => [from, to]), [[0, 0]]);
+  assert.deepEqual(graph.rows.map((row) => row.lane), [1, 1, 1, 0, 0]);
+  assert.equal(graph.laneCount, 2);
+  assert.deepEqual(graph.rows[2].connections.map(({ from, to }) => [from, to]), [[1, 0]]);
+  assert.deepEqual(graph.workingTreeNode, { type: 'WorkingTreeNode', lane: 0, commitIndex: 3, position: 'top' });
 });
 
 test('keeps a linear history in one lane', () => {

@@ -112,18 +112,11 @@
       firstDifference: null,
     });
 
-    const commitByHash = new Map(commits.map((commit) => [commit.hash, commit]));
-    const currentBranch = branches.find((branch) => !branch.remote && branch.current && branch.hash === options.headHash);
-    let firstParentHash = commits[0]?.hash;
-    while (firstParentHash && firstParentHash !== options.headHash) firstParentHash = commitByHash.get(firstParentHash)?.parents?.[0];
-    const firstHistoryLineReachesHead = firstParentHash === options.headHash;
-
-    // Une branche active déjà située sur la première ligne d'ascendance doit
-    // hériter naturellement de cette lane. La pré-réserver créerait une
-    // fausse bifurcation quand une autre branche locale est simplement un
-    // commit devant elle. HEAD reste réservé s'il est détaché ou appartient à
-    // une autre ligne d'histoire afin de garder la copie de travail visible.
-    if (options.headHash && commits.some((commit) => commit.hash === options.headHash) && (!currentBranch || !firstHistoryLineReachesHead)) {
+    // La copie de travail et la branche active conservent toujours la lane 0.
+    // Si une branche est en avance sur HEAD, sa chaîne reste dans une lane
+    // parallèle jusqu'au commit HEAD, où elle rejoint la ligne active. C'est
+    // la géométrie de GitKraken : le WIP reste aligné avec la branche active.
+    if (options.headHash && commits.some((commit) => commit.hash === options.headHash)) {
       lanes[0] = options.headHash;
       laneColors[0] = nextColor;
       nextColor += 1;
