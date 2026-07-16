@@ -950,10 +950,21 @@ class GitService {
     return this.checkoutWithAutoStash(['switch', name], name);
   }
 
-  async createBranch(name, startPoint = null) {
-    await this.validateBranchName(name, false);
+  async createBranch(name, startPoint = null, checkout = true) {
+    const branchName = await this.validateNewBranchName(name);
     if (startPoint) await this.validateRevision(startPoint);
-    return this.run(['switch', '-c', name, ...(startPoint ? [startPoint] : [])]);
+    const args = checkout
+      ? ['switch', '--no-track', '-c', branchName, ...(startPoint ? [startPoint] : [])]
+      : ['branch', '--no-track', branchName, ...(startPoint ? [startPoint] : [])];
+    console.info('[branch-create] git command', JSON.stringify({ repository: this.repoPath, args }));
+    try {
+      const output = await this.run(args);
+      console.info('[branch-create] git result', JSON.stringify({ ok: true, output: output.trim() }));
+      return output;
+    } catch (error) {
+      console.error('[branch-create] git result', JSON.stringify({ ok: false, message: error.message, details: error.details || '' }));
+      throw error;
+    }
   }
 
   async checkoutCommit(hash) {
@@ -1047,6 +1058,7 @@ class GitService {
     const remote = remotes.find((candidate) => String(upstream).startsWith(`${candidate}/`));
     const remoteBranch = remote ? String(upstream).slice(remote.length + 1) : '';
     if (!remote || !remoteBranch) throw new GitError('Branche distante suivie invalide.');
+    if (remoteBranch !== name) throw new GitError(`La branche distante « ${upstream} » ne correspond pas à la branche locale « ${name} » et ne sera pas supprimée.`);
     await this.validateBranchName(remoteBranch, true);
     await this.run(['rev-parse', '--verify', `refs/remotes/${remote}/${remoteBranch}`]);
     await this.run(['push', remote, '--delete', remoteBranch]);
@@ -1376,11 +1388,19 @@ class GitService {
 
   async validateNewBranchName(name) {
     if (typeof name !== 'string' || !name.trim() || name.startsWith('-')) throw new GitError('Nom de branche invalide.');
+    const branchName = name.trim();
     try {
-      await execFileAsync('git', ['check-ref-format', '--branch', name.trim()], { encoding: 'utf8' });
+      await execFileAsync('git', ['check-ref-format', '--branch', branchName], { encoding: 'utf8' });
     } catch {
       throw new GitError('Nom de branche invalide.');
     }
+    if (this.repoPath) {
+      const existingRefs = await this.run(['for-each-ref', '--format=%(refname)', `refs/heads/${branchName}`]);
+      if (existingRefs.split('\n').includes(`refs/heads/${branchName}`)) {
+        throw new GitError(`La branche « ${branchName} » existe déjà.`);
+      }
+    }
+    return branchName;
   }
 
   async fetch() { return this.run(['fetch', '--all', '--prune']); }

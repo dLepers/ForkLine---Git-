@@ -150,7 +150,9 @@
         <p class="eyebrow">NOUVELLE BRANCHE</p>
         <h3>Créer depuis <span id="branch-source"></span></h3>
         <label for="branch-name">Nom de la branche</label>
-        <input id="branch-name" autocomplete="off" placeholder="feature/ma-branche">
+        <input id="branch-name" autocomplete="off" placeholder="feature/ma-branche" aria-describedby="branch-error">
+        <p id="branch-error" class="dialog-error hidden" role="alert"></p>
+        <label class="dialog-check"><input id="branch-checkout" type="checkbox" checked><span>Basculer immédiatement sur la nouvelle branche</span></label>
         <div class="dialog-actions"><button value="cancel" class="button">Annuler</button><button id="confirm-branch" value="default" class="button button-primary">Créer et basculer</button></div>
       </form>
     </dialog>

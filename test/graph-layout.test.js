@@ -2,6 +2,24 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { filterGraphVisibility, layoutCommitGraph } = require('../src/renderer/graph-layout');
 
+test('keeps a descendant branch and the active branch on the same linear lane', () => {
+  const graph = layoutCommitGraph([
+    { hash: 'master-tip', parents: ['active-tip'] },
+    { hash: 'active-tip', parents: ['root'] },
+    { hash: 'root', parents: [] },
+  ], {
+    headHash: 'active-tip',
+    branches: [
+      { name: 'master', hash: 'master-tip', current: false },
+      { name: 'feature/new', hash: 'active-tip', current: true },
+    ],
+  });
+
+  assert.deepEqual(graph.rows.map((row) => row.lane), [0, 0, 0]);
+  assert.equal(graph.laneCount, 1);
+  assert.deepEqual(graph.rows[0].connections.map(({ from, to }) => [from, to]), [[0, 0]]);
+});
+
 test('keeps a linear history in one lane', () => {
   const graph = layoutCommitGraph([
     { hash: 'c', parents: ['b'] },

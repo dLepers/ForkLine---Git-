@@ -49,6 +49,14 @@ test('commit checkout distinguishes branch switching from detached HEAD', () => 
   assert.match(renderer, /operation === 'checkout'[\s\S]*window\.forkline\.checkoutCommit\(commit\.hash\)/);
 });
 
+test('contextual branch creation uses the shared dialog and selected revision', () => {
+  assert.match(renderer, /operation === 'create'[\s\S]*openBranchDialog\(branchName, branchName\)/);
+  assert.match(renderer, /operation === 'create-branch'[\s\S]*openBranchDialog\(commit\.hash, commit\.shortHash\)/);
+  assert.match(renderer, /window\.forkline\.createBranch\(name, state\.branchCreation\.startPoint, checkout\)/);
+  assert.match(html, /id="branch-checkout"[^>]*checked/);
+  assert.match(html, /id="branch-error"[^>]*role="alert"/);
+});
+
 test('stash rows preserve every active graph lane', () => {
   const stashRenderer = renderer.match(/function renderStashGraphRow[\s\S]*?(?=\nfunction renderWorkingTreeRow)/)?.[0] || '';
   assert.match(stashRenderer, /row\.before\.map/);
@@ -63,6 +71,7 @@ test('branch context actions follow the selected branch state and update graph v
   assert.match(branchMenu, /canFastForward/);
   assert.match(branchMenu, /id: 'interactive-rebase'/);
   assert.match(branchMenu, /id: 'delete-with-remote'/);
+  assert.match(branchMenu, /branch\.upstream === `\$\{remote\.name\}\/\$\{branch\.name\}`/);
   assert.match(branchMenu, /id: 'solo'/);
   assert.match(branchMenu, /id: 'hide'/);
   assert.match(renderer, /operation === 'solo'[\s\S]*renderBranches\(\);[\s\S]*renderCommits\(\)/);

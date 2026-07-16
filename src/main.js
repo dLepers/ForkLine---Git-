@@ -16,6 +16,7 @@ let undoQueue = [];
 let redoStack = [];
 let historyExpectedState = null;
 let historyMutation = false;
+let branchCreationTrace = null;
 function clearActionHistory() {
   undoQueue = [];
   redoStack = [];
@@ -32,7 +33,9 @@ function decorateSnapshot(snapshot) {
 }
 const repositoryWatcher = new RepositoryWatcher(git, (snapshot) => {
   decorateSnapshot(snapshot);
-  BrowserWindow.getAllWindows().forEach((window) => window.webContents.send('repository:updated', snapshot));
+  const windows = BrowserWindow.getAllWindows();
+  if (branchCreationTrace) console.info('[branch-create] refresh event', JSON.stringify({ ...branchCreationTrace, repositoryRevision: snapshot.repositoryRevision, head: snapshot.head, branches: snapshot.branches.filter((branch) => !branch.remote).map((branch) => ({ name: branch.name, hash: branch.hash, current: branch.current })), views: windows.length }));
+  windows.forEach((window) => window.webContents.send('repository:updated', snapshot));
 }, {
   onMutationStart: () => { if (!historyMutation) clearActionHistory(); },
   onExternalChange: () => { clearActionHistory(); },
@@ -385,7 +388,20 @@ app.whenReady().then(() => {
     return { output, snapshot };
   });
   handle('repository:switch', async (name) => (await repositoryWatcher.mutate(() => git.switchBranch(name))).snapshot);
-  handle('repository:create-branch', async (name, startPoint) => (await repositoryWatcher.mutate(() => git.createBranch(name, startPoint))).snapshot);
+  handle('repository:create-branch', async (name, startPoint, checkout) => {
+    branchCreationTrace = { name, startPoint, checkout };
+    console.info('[branch-create] context-menu handler', JSON.stringify(branchCreationTrace));
+    try {
+      const { snapshot } = await repositoryWatcher.mutate(() => git.createBranch(name, startPoint, checkout));
+      console.info('[branch-create] handler result', JSON.stringify({ ok: true, repositoryRevision: snapshot.repositoryRevision, head: snapshot.head }));
+      return snapshot;
+    } catch (error) {
+      console.error('[branch-create] handler result', JSON.stringify({ ok: false, message: error.message, details: error.details || '' }));
+      throw error;
+    } finally {
+      branchCreationTrace = null;
+    }
+  });
   handle('repository:checkout-commit', async (hash) => (await repositoryWatcher.mutate(() => git.checkoutCommit(hash))).snapshot);
   for (const [channel, operation] of [
     ['merge-branch', (value) => git.mergeBranch(value)],

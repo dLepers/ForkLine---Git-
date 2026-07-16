@@ -19,6 +19,7 @@ const state = {
   assignedProfileId: null,
   profileAssignmentType: null,
   externalEditorCommand: '',
+  branchCreation: { startPoint: null, sourceLabel: '' },
 };
 
 function loadHiddenStashHashes() {
@@ -158,7 +159,6 @@ function applySnapshot(snapshot, options = {}) {
   $('#repo-title').textContent = `${repoName}  ·  ${snapshot.head}`;
   $('#commit-count').textContent = snapshot.commits.length;
   $('#change-count').textContent = snapshot.status.files.length || '';
-  $('#branch-source').textContent = snapshot.head;
   const undoButton = $('#undo');
   undoButton.disabled = !snapshot.undoPlan?.available;
   undoButton.title = snapshot.undoPlan?.available ? `${snapshot.undoPlan.label}${snapshot.undoHistory?.length > 1 ? ` · ${snapshot.undoHistory.length} actions disponibles par clic droit` : ''}` : snapshot.undoPlan?.reason || 'Aucune action à annuler';
@@ -230,6 +230,7 @@ function branchContextActions(branch) {
   const sameBranch = branch.current || branch.name === activeName;
   const hasRemote = state.snapshot.remotes?.length > 0;
   const canFastForward = !sameBranch && isVisibleAncestor(state.snapshot.headHash, branch.hash);
+  const matchingUpstream = (state.snapshot.remotes || []).some((remote) => branch.upstream === `${remote.name}/${branch.name}`);
   const flowType = gitFlowBranchType(branch.name);
   return [
     { id: 'checkout', icon: '✓', label: `Checkout ${branch.name}`, disabled: sameBranch, disabledReason: 'Cette branche est déjà active.' },
@@ -250,7 +251,7 @@ function branchContextActions(branch) {
     { id: 'rename', icon: '✎', label: `Renommer ${branch.name}` },
     { id: 'copy', icon: '⧉', label: 'Copier le nom de la branche' },
     { id: 'delete', icon: '⌫', label: `Supprimer ${branch.name}`, danger: true, disabled: sameBranch, disabledReason: 'Impossible de supprimer la branche active.' },
-    ...(branch.upstream && branch.tracking?.state !== 'gone' ? [{ id: 'delete-with-remote', icon: '⌫', label: `Supprimer ${branch.name} et ${branch.upstream}`, danger: true, disabled: sameBranch, disabledReason: 'Impossible de supprimer la branche active.' }] : []),
+    ...(matchingUpstream && branch.tracking?.state !== 'gone' ? [{ id: 'delete-with-remote', icon: '⌫', label: `Supprimer ${branch.name} et ${branch.upstream}`, danger: true, disabled: sameBranch, disabledReason: 'Impossible de supprimer la branche active.' }] : []),
     { id: 'force-delete', icon: '⌫', label: `Forcer la suppression de ${branch.name}`, danger: true, disabled: sameBranch, disabledReason: 'Impossible de supprimer la branche active.' },
     { separator: true },
     { id: 'compare', icon: '≠', label: 'Comparer avec la copie de travail' },
@@ -269,6 +270,7 @@ function closeCommitContextMenu() {
 }
 
 function showBranchContextMenu(branchName, clientX, clientY) {
+  console.info('[branch-create] selected branch', JSON.stringify({ branchName, clientX, clientY }));
   closeBranchContextMenu();
   closeCommitContextMenu();
   const menu = document.createElement('div');
@@ -326,6 +328,7 @@ function commitContextActions(commit) {
 }
 
 function showCommitContextMenu(commit, clientX, clientY) {
+  console.info('[branch-create] selected commit', JSON.stringify({ hash: commit.hash, shortHash: commit.shortHash, clientX, clientY }));
   closeBranchContextMenu();
   closeCommitContextMenu();
   const menu = document.createElement('div');
@@ -409,8 +412,8 @@ async function runBranchContextAction(operation, branchName) {
   if (!branch) return;
   if (operation === 'checkout') return switchBranch(branchName);
   if (operation === 'create') {
-    const name = window.prompt(`Créer une branche depuis ${branchName} :`);
-    if (name?.trim()) await executeRepositoryAction(`Branche ${name.trim()} créée`, () => window.forkline.createBranch(name.trim(), branchName));
+    console.info('[branch-create] branch menu action', JSON.stringify({ operation, branchName, hash: branch.hash }));
+    openBranchDialog(branchName, branchName);
     return;
   }
   if (operation === 'merge') {
@@ -517,8 +520,8 @@ async function runCommitContextAction(operation, commit) {
     return;
   }
   if (operation === 'create-branch') {
-    const name = window.prompt(`Créer une branche depuis ${commit.shortHash} :`);
-    if (name?.trim()) await executeRepositoryAction(`Branche ${name.trim()} créée`, () => window.forkline.createBranch(name.trim(), commit.hash));
+    console.info('[branch-create] commit menu action', JSON.stringify({ operation, hash: commit.hash, shortHash: commit.shortHash }));
+    openBranchDialog(commit.hash, commit.shortHash);
     return;
   }
   if (operation === 'cherry-pick') {
@@ -1643,6 +1646,7 @@ async function refresh(silent = false) {
 }
 
 async function handleRepositoryUpdate(snapshot) {
+  if (state.branchCreation.pending) console.info('[branch-create] renderer refresh received', JSON.stringify({ repositoryRevision: snapshot.repositoryRevision, head: snapshot.head, branchCount: snapshot.branches.filter((branch) => !branch.remote).length }));
   if (state.busy) {
     if (!state.pendingSnapshot?.repositoryRevision || state.pendingSnapshot.repositoryRevision < snapshot.repositoryRevision) state.pendingSnapshot = snapshot;
     return;
@@ -1894,14 +1898,44 @@ async function applyPatchFromClipboard() {
   return executeRepositoryAction('Patch du presse-papiers appliqué', () => window.forkline.applyPatchContent(patch));
 }
 
-function openBranchDialog() {
+function branchNameError(value) {
+  const name = value.trim();
+  if (!name) return 'Le nom de la branche est obligatoire.';
+  if (state.snapshot.branches.some((branch) => !branch.remote && branch.name === name)) return `La branche « ${name} » existe déjà.`;
+  if (name === '@' || name.startsWith('-') || name.startsWith('.') || name.endsWith('.') || name.endsWith('/') || name.endsWith('.lock')
+    || name.includes('..') || name.includes('@{') || /[\x00-\x20\x7f~^:?*[\\]/.test(name)
+    || name.split('/').some((part) => !part || part.startsWith('.') || part.endsWith('.') || part.endsWith('.lock'))) return 'Ce nom de branche n’est pas valide.';
+  return '';
+}
+
+function renderBranchDialogValidation(force = false) {
+  const error = branchNameError($('#branch-name').value);
+  const visibleError = force || $('#branch-name').value ? error : '';
+  $('#branch-error').textContent = visibleError;
+  $('#branch-error').classList.toggle('hidden', !visibleError);
+  $('#branch-name').setAttribute('aria-invalid', error ? 'true' : 'false');
+  return error;
+}
+
+function updateBranchDialogAction() {
+  $('#confirm-branch').textContent = $('#branch-checkout').checked ? 'Créer et basculer' : 'Créer la branche';
+}
+
+function openBranchDialog(startPoint = state.snapshot.head, sourceLabel = startPoint) {
+  state.branchCreation = { startPoint, sourceLabel, pending: false };
   $('#branch-name').value = '';
+  $('#branch-source').textContent = sourceLabel;
+  $('#branch-checkout').checked = true;
+  renderBranchDialogValidation(false);
+  updateBranchDialogAction();
   $('#branch-dialog').showModal();
   setTimeout(() => $('#branch-name').focus(), 50);
 }
 
-$('#new-branch').addEventListener('click', openBranchDialog);
-$('#toolbar-new-branch').addEventListener('click', openBranchDialog);
+$('#new-branch').addEventListener('click', () => openBranchDialog());
+$('#toolbar-new-branch').addEventListener('click', () => openBranchDialog());
+$('#branch-name').addEventListener('input', () => renderBranchDialogValidation(false));
+$('#branch-checkout').addEventListener('change', updateBranchDialogAction);
 $('#new-tag').addEventListener('click', () => createTagAt(state.snapshot.headHash, false));
 $('#new-remote').addEventListener('click', async () => {
   const name = window.prompt('Nom du dépôt distant :', 'origin');
@@ -2042,11 +2076,21 @@ $('#confirm-identity').addEventListener('click', async (event) => {
 $('#confirm-branch').addEventListener('click', async (event) => {
   event.preventDefault();
   const name = $('#branch-name').value.trim();
-  const result = await action(`Branche ${name} créée`, () => window.forkline.createBranch(name).then(unwrap));
+  if (renderBranchDialogValidation(true)) return $('#branch-name').focus();
+  const checkout = $('#branch-checkout').checked;
+  state.branchCreation.pending = true;
+  console.info('[branch-create] submit', JSON.stringify({ name, startPoint: state.branchCreation.startPoint, checkout }));
+  const result = await executeRepositoryAction(
+    checkout ? `Branche ${name} créée et activée` : `Branche ${name} créée`,
+    () => window.forkline.createBranch(name, state.branchCreation.startPoint, checkout),
+  );
   if (result) {
+    console.info('[branch-create] renderer views refreshed', JSON.stringify({ repositoryRevision: state.snapshot.repositoryRevision, head: state.snapshot.head, branches: state.snapshot.branches.filter((branch) => !branch.remote).map((branch) => ({ name: branch.name, hash: branch.hash, current: branch.current })) }));
     $('#branch-dialog').close();
-    applySnapshot(result);
+  } else {
+    console.error('[branch-create] renderer creation failed', JSON.stringify({ name, startPoint: state.branchCreation.startPoint, checkout }));
   }
+  state.branchCreation.pending = false;
 });
 
 window.forkline.onRepositoryUpdated(handleRepositoryUpdate);

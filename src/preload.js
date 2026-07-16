@@ -51,7 +51,7 @@ contextBridge.exposeInMainWorld('forkline', {
   popStash: (ref) => invoke('repository:pop-stash', ref),
   dropStash: (ref) => invoke('repository:drop-stash', ref),
   switchBranch: (name) => invoke('repository:switch', name),
-  createBranch: (name, startPoint = null) => invoke('repository:create-branch', name, startPoint),
+  createBranch: (name, startPoint = null, checkout = true) => invoke('repository:create-branch', name, startPoint, checkout),
   checkoutCommit: (hash) => invoke('repository:checkout-commit', hash),
   mergeBranch: (name) => invoke('repository:merge-branch', name),
   rebaseBranch: (name) => invoke('repository:rebase-branch', name),

@@ -143,6 +143,35 @@ test('creates a branch and commits staged content', async () => {
   assert.equal(snapshot.commits[0].subject, 'Add feature');
 });
 
+test('creates a branch from a selected revision without checking it out', async () => {
+  const initialHash = (await git.snapshot()).headHash;
+  await git.createBranch('feature/from-selection', initialHash, false);
+
+  const snapshot = await git.snapshot();
+  const created = snapshot.branches.find((branch) => branch.name === 'feature/from-selection');
+  assert.equal(snapshot.head, 'main');
+  assert.equal(created.hash, initialHash);
+  assert.equal(created.current, false);
+});
+
+test('does not inherit the selected branch upstream when creating a branch', async () => {
+  await command(['config', 'branch.autoSetupMerge', 'inherit']);
+  await command(['config', 'branch.main.remote', 'origin']);
+  await command(['config', 'branch.main.merge', 'refs/heads/main']);
+
+  await git.createBranch('feature/no-inherited-upstream', 'main', false);
+
+  const created = (await git.snapshot()).branches.find((branch) => branch.name === 'feature/no-inherited-upstream');
+  assert.equal(created.upstream, '');
+});
+
+test('rejects invalid and duplicate branch names with clear errors', async () => {
+  await git.createBranch('feature/existing', null, false);
+  await assert.rejects(() => git.createBranch('feature/existing', null, false), /existe déjà/);
+  await assert.rejects(() => git.createBranch('invalid name', null, false), /Nom de branche invalide/);
+  assert.equal((await git.snapshot()).head, 'main');
+});
+
 test('amends the last commit with staged content', async () => {
   const previousHash = (await git.snapshot()).headHash;
   await fs.appendFile(path.join(repository, 'README.md'), 'Amended line\n');
@@ -495,6 +524,13 @@ test('deletes a local branch and its tracked remote branch together', async () =
     await git.commit('Remote branch to delete');
     await git.pushBranch('feature/remote-delete', { remote: 'origin' });
     await git.switchBranch('main');
+
+    await assert.rejects(
+      () => git.deleteBranchWithRemote('feature/remote-delete', 'origin/main'),
+      /ne correspond pas à la branche locale/,
+    );
+    assert.equal((await git.branches()).some((branch) => branch.name === 'feature/remote-delete'), true);
+    assert.match((await exec('git', ['--git-dir', remoteRepository, 'show-ref', '--verify', 'refs/heads/feature/remote-delete'], { encoding: 'utf8' })).stdout, /refs\/heads\/feature\/remote-delete/);
 
     await git.deleteBranchWithRemote('feature/remote-delete', 'origin/feature/remote-delete');
 

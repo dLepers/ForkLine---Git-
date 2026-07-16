@@ -354,6 +354,7 @@ dialog::backdrop { background: rgba(16,18,15,.7); backdrop-filter: blur(3px); }
 dialog form { padding: 26px; } dialog h3 { margin: 7px 0 22px; font: 400 24px var(--display); }.dialog-actions { margin-top: 20px; display: flex; justify-content: flex-end; gap: 8px; }
 .rebase-dialog { width: min(760px, calc(100vw - 60px)); }
 .dialog-help { margin: -12px 0 18px; color: #737b84; font-size: 12px; line-height: 1.5; }
+.dialog-error { margin: 7px 0 0; color: #a13e47; font-size: 11px; line-height: 1.4; }
 .rebase-plan { max-height: min(480px, 60vh); overflow: auto; border: 1px solid #c9c2b4; border-radius: 4px; background: #e8e1d2; }
 .rebase-plan-row { min-height: 54px; padding: 7px 9px; display: grid; grid-template-columns: 58px 190px minmax(0,1fr); align-items: center; gap: 9px; border-bottom: 1px solid rgba(23,25,22,.1); }
 .rebase-plan-row:last-child { border-bottom: 0; }

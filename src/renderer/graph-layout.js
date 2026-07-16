@@ -112,12 +112,18 @@
       firstDifference: null,
     });
 
-    // Seul le HEAD obtient une lane pré-réservée en lane 0. Toute autre
-    // branche ne doit prendre une colonne qu'au moment où son commit est
-    // réellement atteint par le parcours (sinon des colonnes apparaissent
-    // "à vide" au sommet du graphe, avant même que le commit correspondant
-    // n'existe dans l'historique affiché — ce que GitKraken ne fait jamais).
-    if (options.headHash && commits.some((commit) => commit.hash === options.headHash)) {
+    const commitByHash = new Map(commits.map((commit) => [commit.hash, commit]));
+    const currentBranch = branches.find((branch) => !branch.remote && branch.current && branch.hash === options.headHash);
+    let firstParentHash = commits[0]?.hash;
+    while (firstParentHash && firstParentHash !== options.headHash) firstParentHash = commitByHash.get(firstParentHash)?.parents?.[0];
+    const firstHistoryLineReachesHead = firstParentHash === options.headHash;
+
+    // Une branche active déjà située sur la première ligne d'ascendance doit
+    // hériter naturellement de cette lane. La pré-réserver créerait une
+    // fausse bifurcation quand une autre branche locale est simplement un
+    // commit devant elle. HEAD reste réservé s'il est détaché ou appartient à
+    // une autre ligne d'histoire afin de garder la copie de travail visible.
+    if (options.headHash && commits.some((commit) => commit.hash === options.headHash) && (!currentBranch || !firstHistoryLineReachesHead)) {
       lanes[0] = options.headHash;
       laneColors[0] = nextColor;
       nextColor += 1;
