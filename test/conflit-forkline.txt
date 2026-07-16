@@ -1,0 +1,3 @@
+Version de la branche source
+
+Ce contenu doit être conservé depuis test/conflit-source.
