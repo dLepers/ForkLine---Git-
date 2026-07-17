@@ -1,0 +1,4 @@
+Configuration de la branche source
+
+nouveau_graphe=desactive
+resolution_automatique=activee

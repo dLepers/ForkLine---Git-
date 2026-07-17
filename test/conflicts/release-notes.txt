@@ -1,0 +1,4 @@
+Notes de la branche source
+
+- Adopter la présentation GitKraken.
+- Valider la résolution avec la version B.

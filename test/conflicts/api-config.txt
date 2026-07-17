@@ -1,0 +1,4 @@
+Version de la branche source
+
+endpoint=https://source.example.test
+timeout=90
