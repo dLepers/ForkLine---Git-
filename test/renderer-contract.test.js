@@ -105,6 +105,7 @@ test('the conflict editor renders a live GitKraken-style Output panel', () => {
   assert.match(renderer, /data-conflict-navigation="previous"/);
   assert.match(renderer, /data-conflict-navigation="next"/);
   assert.match(renderer, /id="reset-conflict-output"/);
+  assert.match(renderer, /state\.conflictResolution\.selections\.forEach\(\(selection\) => \{[\s\S]*selection\.ours = false;[\s\S]*selection\.theirs = false;[\s\S]*state\.conflictResolution\.activeConflictIndex = 0/);
   assert.match(renderer, /selection\.ours\) append\(hunk\.ours, 'ours', conflictIndex\)/);
   assert.match(renderer, /selection\.theirs\) append\(hunk\.theirs, 'theirs', conflictIndex\)/);
 });

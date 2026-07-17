@@ -1861,9 +1861,11 @@ function renderConflictEditor() {
     renderConflictEditor();
   }));
   $('#reset-conflict-output').addEventListener('click', () => {
-    const selection = state.conflictResolution.selections[state.conflictResolution.activeConflictIndex];
-    selection.ours = false;
-    selection.theirs = false;
+    state.conflictResolution.selections.forEach((selection) => {
+      selection.ours = false;
+      selection.theirs = false;
+    });
+    state.conflictResolution.activeConflictIndex = 0;
     renderConflictEditor();
   });
   bindConflictOutputResizer();
