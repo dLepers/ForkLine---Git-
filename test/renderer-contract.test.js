@@ -73,6 +73,15 @@ test('resolved conflicts leave conflict mode while keeping the Git operation ava
   assert.match(renderer, /operation && !activeConflicts \? \(operation\.type === 'merge' \? 'Terminer la fusion'/);
 });
 
+test('aborting an operation clearly warns that conflict resolutions are destructive', () => {
+  assert.match(renderer, /function confirmAbortOperation\(operation\)/);
+  assert.match(renderer, /Toutes les résolutions réalisées pendant cette opération seront perdues/);
+  assert.match(renderer, /Git tentera de restaurer les modifications locales présentes avant son démarrage/);
+  assert.match(renderer, /if \(mode === 'abort' && !confirmAbortOperation\(operation\)\) return/);
+  assert.match(renderer, /if \(!operation \|\| !confirmAbortOperation\(operation\)\) return/);
+  assert.match(renderer, /Abandonner la fusion…/);
+});
+
 test('the conflict editor follows GitKraken A/B selection and safe-save behavior', () => {
   assert.match(renderer, /class="merge-editor-columns"/);
   assert.match(renderer, /data-conflict-all="ours"/);
@@ -80,10 +89,44 @@ test('the conflict editor follows GitKraken A/B selection and safe-save behavior
   assert.match(renderer, /data-conflict-side="\$\{side\}" data-conflict-index/);
   assert.match(renderer, /selection\.ours \|\| selection\.theirs/);
   assert.match(renderer, /selectedConflictContent\(resolution\)/);
-  assert.match(renderer, /window\.forkline\.openFile\(file\)/);
-  assert.match(renderer, /Ouvrir dans l’outil de fusion externe/);
+  assert.doesNotMatch(renderer, /id="open-external-merge-tool"/);
+  assert.doesNotMatch(renderer, /Ouvrir dans l’outil de fusion externe/);
   assert.doesNotMatch(renderer, /class="conflict-columns"/);
   assert.doesNotMatch(renderer, /id="conflict-result-content"/);
+});
+
+test('the conflict editor renders a live GitKraken-style Output panel', () => {
+  assert.match(renderer, /activeConflictIndex: 0/);
+  assert.match(renderer, /function conflictOutputRows\(resolution\)/);
+  assert.match(renderer, /function renderConflictOutput\(resolution\)/);
+  assert.match(renderer, /class="merge-output"/);
+  assert.match(renderer, />Output</);
+  assert.match(renderer, /conflit \$\{activeIndex \+ 1\} sur \$\{resolution\.hunks\.length\}/);
+  assert.match(renderer, /data-conflict-navigation="previous"/);
+  assert.match(renderer, /data-conflict-navigation="next"/);
+  assert.match(renderer, /id="reset-conflict-output"/);
+  assert.match(renderer, /selection\.ours\) append\(hunk\.ours, 'ours', conflictIndex\)/);
+  assert.match(renderer, /selection\.theirs\) append\(hunk\.theirs, 'theirs', conflictIndex\)/);
+});
+
+test('the conflict editor exposes per-file and repository conflict counts', () => {
+  assert.match(renderer, /const conflictedFileCount = state\.snapshot\.status\.files\.filter\(\(statusFile\) => statusFile\.conflicted\)\.length/);
+  assert.match(renderer, /conflit\$\{hunks\.length > 1 \? 's' : ''\} dans ce fichier/);
+  assert.match(renderer, /fichier\$\{conflictedFileCount > 1 \? 's' : ''\} en conflit au total/);
+  assert.match(renderer, /class="merge-conflict-count"/);
+  assert.match(renderer, /aria-label="\$\{conflictLabel\}, \$\{conflictedFileLabel\}"/);
+});
+
+test('the Output panel can be resized with pointer and keyboard controls', () => {
+  assert.match(renderer, /conflictOutputHeight: null/);
+  assert.match(renderer, /class="merge-output-resizer" role="separator"/);
+  assert.match(renderer, /function setConflictOutputHeight\(requestedHeight\)/);
+  assert.match(renderer, /availableHeight - minimumPaneHeight/);
+  assert.match(renderer, /addEventListener\('pointerdown'/);
+  assert.match(renderer, /addEventListener\('pointermove', move\)/);
+  assert.match(renderer, /\['ArrowUp', 'ArrowDown', 'Home', 'End'\]/);
+  assert.match(renderer, /addEventListener\('dblclick', resetConflictOutputHeight\)/);
+  assert.match(renderer, /bindConflictOutputResizer\(\)/);
 });
 
 test('commit checkout distinguishes branch switching from detached HEAD', () => {

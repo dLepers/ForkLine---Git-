@@ -609,7 +609,7 @@ class GitService {
   }
 
   async status() {
-    const output = await this.run(['status', '--porcelain=v1', '-z', '--branch']);
+    const output = await this.run(['status', '--porcelain=v1', '-z', '--branch', '--untracked-files=all']);
     const records = output.split('\0').filter(Boolean);
     const branchLine = records.shift() || '';
     const files = records.map((record) => {

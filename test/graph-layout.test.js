@@ -79,6 +79,22 @@ test('keeps the active branch vertical while a sibling branch rejoins it', () =>
   assert.deepEqual(graph.rows[1].transitions, []);
 });
 
+test('keeps the complete first-parent chain of HEAD in lane zero', () => {
+  const graph = layoutCommitGraph([
+    { hash: 'head-tip', parents: ['previous-head'] },
+    { hash: 'source-tip', parents: ['base'] },
+    { hash: 'previous-head', parents: ['base'] },
+    { hash: 'base', parents: ['root'] },
+    { hash: 'root', parents: [] },
+  ], { headHash: 'head-tip', showWorkingTree: true });
+
+  assert.deepEqual(graph.rows.map((row) => row.lane), [0, 1, 0, 0, 0]);
+  assert.deepEqual(graph.rows[2].connections.map(({ from, to }) => [from, to]), [[0, 0]]);
+  assert.deepEqual(graph.rows[2].joins.map(({ from, to, hash }) => [from, to, hash]), [[1, 0, 'base']]);
+  assert.deepEqual(graph.rows[2].transitions, []);
+  assert.deepEqual(graph.workingTreeNode, { type: 'WorkingTreeNode', lane: 0, commitIndex: 0, position: 'top' });
+});
+
 test('assigns a fresh color when a freed lane is reused by another branch', () => {
   const graph = layoutCommitGraph([
     { hash: 'feature-tip', parents: [] },

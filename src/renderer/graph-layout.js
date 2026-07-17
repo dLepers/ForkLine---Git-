@@ -98,6 +98,14 @@
     const branches = options.branches || [];
     const children = new Map();
     const assignedLanes = new Map();
+    const commitsByHash = new Map(commits.map((commit) => [commit.hash, commit]));
+    const activeFirstParentChain = new Set();
+
+    let activeHash = options.headHash;
+    while (activeHash && !activeFirstParentChain.has(activeHash)) {
+      activeFirstParentChain.add(activeHash);
+      activeHash = commitsByHash.get(activeHash)?.parents?.[0] || null;
+    }
 
     commits.forEach((commit) => {
       commit.parents.forEach((parent) => {
@@ -152,7 +160,7 @@
 
       commit.parents.forEach((parent, parentIndex) => {
         let target = lanes.indexOf(parent);
-        if (parentIndex === 0 && lane === 0 && commit.hash === options.headHash && target > 0) {
+        if (parentIndex === 0 && lane === 0 && activeFirstParentChain.has(commit.hash) && target > 0) {
           const joiningColor = laneColors[target];
           lanes[target] = null;
           laneColors[target] = null;

@@ -132,6 +132,21 @@ test('discards, stages and unstages a hunk through git apply stdin', async () =>
   assert.equal(status.files[0].workingTree, 'M');
 });
 
+test('reports every untracked file inside an untracked directory', async () => {
+  const settings = path.join(repository, '.settings');
+  await fs.mkdir(settings);
+  await fs.writeFile(path.join(settings, 'one.xml'), '<one/>\n');
+  await fs.writeFile(path.join(settings, 'two.xml'), '<two/>\n');
+
+  const status = await git.status();
+
+  assert.deepEqual(status.files.map((file) => file.path), ['.settings/one.xml', '.settings/two.xml']);
+  assert.equal(status.files.every((file) => file.untracked), true);
+
+  await fs.rm(settings, { recursive: true });
+  assert.equal((await git.status()).files.length, 0);
+});
+
 test('creates a branch and commits staged content', async () => {
   await git.createBranch('feature/test');
   await fs.writeFile(path.join(repository, 'feature.txt'), 'Feature\n');

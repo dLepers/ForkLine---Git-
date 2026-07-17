@@ -14,6 +14,7 @@ const state = {
   rebaseBaseHash: null,
   rebasePlan: [],
   conflictResolution: null,
+  conflictOutputHeight: null,
   conflictUi: { operationKey: null, listMode: 'path', summary: '', description: '' },
   compareSelection: [],
   gitProfiles: [],
@@ -1408,6 +1409,11 @@ function renderChanges() {
   renderFileList('#unstaged-files', files.filter((file) => file.workingTree !== ' ' || file.untracked), false);
 }
 
+function confirmAbortOperation(operation) {
+  const operationName = operation.type === 'merge' ? 'la fusion' : `l’opération « ${operation.label} »`;
+  return window.confirm(`Abandonner ${operationName} ?\n\nToutes les résolutions réalisées pendant cette opération seront perdues. Git tentera de restaurer les modifications locales présentes avant son démarrage.`);
+}
+
 function renderWorktreeInspector() {
   const files = state.snapshot.status.files;
   const operation = state.snapshot.operation;
@@ -1416,7 +1422,7 @@ function renderWorktreeInspector() {
     ? 'Utilisez le panneau de conflits pour résoudre les fichiers avant de poursuivre.'
     : 'Tous les conflits sont résolus. Vérifiez les modifications indexées puis terminez l’opération.';
   $('#worktree-detail').innerHTML = `
-    ${operation ? `<section class="operation-banner"><div><p class="eyebrow">OPÉRATION GIT</p><strong>${escapeHtml(operation.label)}</strong><span>${operationHelp}</span></div><div><button class="button button-small" data-operation-action="abort">Abandonner</button>${activeConflicts ? '<button class="button button-small button-primary" data-operation-action="open">Afficher les conflits</button>' : ''}</div></section>` : ''}
+    ${operation ? `<section class="operation-banner"><div><p class="eyebrow">OPÉRATION GIT</p><strong>${escapeHtml(operation.label)}</strong><span>${operationHelp}</span></div><div><button class="button button-small danger" data-operation-action="abort">Abandonner…</button>${activeConflicts ? '<button class="button button-small button-primary" data-operation-action="open">Afficher les conflits</button>' : ''}</div></section>` : ''}
     <header class="worktree-header"><div><p class="eyebrow">TRAVAIL EN COURS</p><h3>${files.length} fichier${files.length > 1 ? 's' : ''} modifié${files.length > 1 ? 's' : ''}</h3></div><button class="text-button" data-worktree-action="stage-all">Tout ajouter</button></header>
     <div class="worktree-files"><h4>Fichiers non indexés <span>${files.filter((file) => !file.staged).length}</span></h4><div id="worktree-unstaged-files" class="file-list"></div><h4>Fichiers indexés <span>${files.filter((file) => file.staged).length}</span></h4><div id="worktree-staged-files" class="file-list"></div></div>
     <div class="worktree-commit"><label for="worktree-commit-message">RÉSUMÉ DU COMMIT</label><textarea id="worktree-commit-message" rows="4" placeholder="${escapeHtml(operation?.defaultMessage?.split('\n')[0] || 'Décrire clairement ce qui change…')}"></textarea><label class="commit-option"><input id="worktree-commit-amend" type="checkbox"${operation ? ' disabled' : ''}><span>Modifier le dernier commit</span></label><label class="commit-option"><input id="worktree-commit-sign" type="checkbox"${state.snapshot.commitPreferences?.gpgSign ? ' checked' : ''}><span>Signer ce commit</span></label><button class="button button-primary" data-worktree-action="commit">${operation && !activeConflicts ? (operation.type === 'merge' ? 'Terminer la fusion' : 'Poursuivre l’opération') : 'Créer le commit'}</button></div>`;
@@ -1425,7 +1431,7 @@ function renderWorktreeInspector() {
   $$('[data-operation-action]').forEach((button) => button.addEventListener('click', async () => {
     const mode = button.dataset.operationAction;
     if (mode === 'open') return showInspector('#conflict-detail');
-    if (mode === 'abort' && !window.confirm(`Abandonner l’opération « ${operation.label} » ?`)) return;
+    if (mode === 'abort' && !confirmAbortOperation(operation)) return;
     await executeRepositoryAction('Opération abandonnée', () => window.forkline.abortOperation(operation.type));
   }));
   $('[data-worktree-action="stage-all"]').addEventListener('click', async () => {
@@ -1492,7 +1498,7 @@ function renderConflictInspector() {
     <div class="conflict-list-toolbar"><span>Trier</span><div><button type="button" data-conflict-list-mode="path" class="${state.conflictUi.listMode === 'path' ? 'active' : ''}">☰ Chemin</button><button type="button" data-conflict-list-mode="tree" class="${state.conflictUi.listMode === 'tree' ? 'active' : ''}">⚑ Arbre</button></div></div>
     <section class="conflict-file-section"><header><strong>Fichiers en conflit (${conflicted.length})</strong><button type="button" id="resolve-all-conflicts"${conflicted.length ? '' : ' disabled'}>Tout marquer résolu</button></header><div>${conflictRows}</div></section>
     <section class="conflict-file-section resolved-section"><header><strong>Fichiers résolus (${resolved.length})</strong></header><div>${resolvedRows}</div></section>
-    <section class="conflict-commit-form"><label for="conflict-commit-summary">RÉSUMÉ DU COMMIT</label><input id="conflict-commit-summary" maxlength="72" placeholder="${escapeHtml(operation.defaultMessage?.split('\n')[0] || 'Message de fusion')}" value="${escapeHtml(state.conflictUi.summary)}"><label for="conflict-commit-description">DESCRIPTION</label><textarea id="conflict-commit-description" rows="3" placeholder="Description facultative">${escapeHtml(state.conflictUi.description)}</textarea><div><button type="button" id="continue-conflict-operation" class="button button-primary"${conflicted.length ? ' disabled' : ''}>${continueLabel}</button><button type="button" id="abort-conflict-operation" class="button danger">${merge ? 'Abandonner la fusion' : 'Abandonner'}</button></div></section>`;
+    <section class="conflict-commit-form"><label for="conflict-commit-summary">RÉSUMÉ DU COMMIT</label><input id="conflict-commit-summary" maxlength="72" placeholder="${escapeHtml(operation.defaultMessage?.split('\n')[0] || 'Message de fusion')}" value="${escapeHtml(state.conflictUi.summary)}"><label for="conflict-commit-description">DESCRIPTION</label><textarea id="conflict-commit-description" rows="3" placeholder="Description facultative">${escapeHtml(state.conflictUi.description)}</textarea><div><button type="button" id="continue-conflict-operation" class="button button-primary"${conflicted.length ? ' disabled' : ''}>${continueLabel}</button><button type="button" id="abort-conflict-operation" class="button danger">${merge ? 'Abandonner la fusion…' : 'Abandonner…'}</button></div></section>`;
 
   $$('[data-conflict-list-mode]').forEach((button) => button.addEventListener('click', () => {
     state.conflictUi.listMode = button.dataset.conflictListMode;
@@ -1523,7 +1529,7 @@ async function continueConflictOperation() {
 
 async function abortConflictOperation() {
   const operation = state.snapshot.operation;
-  if (!operation || !window.confirm(`Abandonner l’opération « ${operation.label} » ?`)) return;
+  if (!operation || !confirmAbortOperation(operation)) return;
   const snapshot = await action(operation.type === 'merge' ? 'Fusion abandonnée' : 'Opération abandonnée', () => window.forkline.abortOperation(operation.type).then(unwrap));
   if (snapshot) {
     state.conflictResolution = null;
@@ -1664,6 +1670,7 @@ async function selectConflictFile(file) {
     versions,
     hunks,
     selections: hunks.map(() => ({ ours: false, theirs: false })),
+    activeConflictIndex: 0,
   };
   $('#history-view').classList.remove('hidden');
   $('#changes-view').classList.add('hidden');
@@ -1727,6 +1734,95 @@ function conflictCommitDetails(side) {
   return { branchName, shortHash: hash?.slice(0, 7) || 'inconnu' };
 }
 
+function conflictOutputRows(resolution) {
+  const rows = [];
+  const append = (content, source = null, conflictIndex = null) => {
+    const text = String(content || '');
+    if (!text) return;
+    const lines = text.split('\n');
+    if (text.endsWith('\n')) lines.pop();
+    lines.forEach((line, index) => rows.push({ line, source, conflictIndex, firstOfBlock: index === 0 }));
+  };
+  let cursor = 0;
+  resolution.hunks.forEach((hunk, conflictIndex) => {
+    append(resolution.content.slice(cursor, hunk.start));
+    const selection = resolution.selections[conflictIndex];
+    if (selection.ours) append(hunk.ours, 'ours', conflictIndex);
+    if (selection.theirs) append(hunk.theirs, 'theirs', conflictIndex);
+    cursor = hunk.end;
+  });
+  append(resolution.content.slice(cursor));
+  return rows;
+}
+
+function renderConflictOutput(resolution) {
+  const activeIndex = Math.min(Math.max(resolution.activeConflictIndex || 0, 0), Math.max(0, resolution.hunks.length - 1));
+  const rows = conflictOutputRows(resolution);
+  const code = rows.length
+    ? rows.map((row, lineIndex) => `<div class="merge-output-line${row.source ? ` output-${row.source}` : ''}${row.conflictIndex === activeIndex ? ' active-conflict' : ''}"><span class="merge-output-origin">${row.firstOfBlock && row.source ? (row.source === 'ours' ? 'A' : 'B') : ''}</span><span class="merge-output-line-number">${lineIndex + 1}</span><span class="merge-output-check">${row.source ? '✓' : ''}</span><code>${escapeHtml(row.line) || ' '}</code></div>`).join('')
+    : '<p class="merge-output-empty">Sélectionnez A, B ou les deux pour construire le résultat.</p>';
+  return `<section class="merge-output"><header><strong>Output</strong><div><span>conflit ${activeIndex + 1} sur ${resolution.hunks.length}</span><button type="button" data-conflict-navigation="previous"${activeIndex === 0 ? ' disabled' : ''} title="Conflit précédent">⌃</button><button type="button" data-conflict-navigation="next"${activeIndex >= resolution.hunks.length - 1 ? ' disabled' : ''} title="Conflit suivant">⌄</button></div><button type="button" id="reset-conflict-output">Reset</button></header><div class="merge-output-code">${code}</div></section>`;
+}
+
+function setConflictOutputHeight(requestedHeight) {
+  const editor = $('.merge-editor');
+  const toolbar = $('.merge-editor-toolbar');
+  const columns = $('.merge-editor-columns');
+  const output = $('.merge-output');
+  const resizer = $('.merge-output-resizer');
+  if (!editor || !toolbar || !columns || !output || !resizer) return;
+  const availableHeight = Math.max(160, editor.clientHeight - toolbar.offsetHeight - resizer.offsetHeight);
+  const minimumPaneHeight = Math.min(120, Math.max(70, Math.floor(availableHeight / 3)));
+  const height = Math.min(availableHeight - minimumPaneHeight, Math.max(minimumPaneHeight, requestedHeight));
+  state.conflictOutputHeight = height;
+  output.style.flex = `0 0 ${height}px`;
+  columns.style.flex = '1 1 auto';
+  resizer.setAttribute('aria-valuenow', String(Math.round((height / availableHeight) * 100)));
+}
+
+function resetConflictOutputHeight() {
+  state.conflictOutputHeight = null;
+  $('.merge-output')?.style.removeProperty('flex');
+  $('.merge-editor-columns')?.style.removeProperty('flex');
+  const output = $('.merge-output');
+  const editor = $('.merge-editor');
+  const resizer = $('.merge-output-resizer');
+  if (output && editor && resizer) resizer.setAttribute('aria-valuenow', String(Math.round((output.offsetHeight / editor.clientHeight) * 100)));
+}
+
+function bindConflictOutputResizer() {
+  const resizer = $('.merge-output-resizer');
+  const output = $('.merge-output');
+  if (!resizer || !output) return;
+  if (Number.isFinite(state.conflictOutputHeight)) setConflictOutputHeight(state.conflictOutputHeight);
+  resizer.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = output.offsetHeight;
+    document.body.classList.add('resizing-merge-output');
+    resizer.setPointerCapture?.(event.pointerId);
+    const move = (moveEvent) => setConflictOutputHeight(startHeight + startY - moveEvent.clientY);
+    const stop = () => {
+      document.body.classList.remove('resizing-merge-output');
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', stop);
+      document.removeEventListener('pointercancel', stop);
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', stop);
+    document.addEventListener('pointercancel', stop);
+  });
+  resizer.addEventListener('keydown', (event) => {
+    if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    if (event.key === 'Home') setConflictOutputHeight(0);
+    else if (event.key === 'End') setConflictOutputHeight(Number.MAX_SAFE_INTEGER);
+    else setConflictOutputHeight(output.offsetHeight + (event.key === 'ArrowUp' ? 24 : -24));
+  });
+  resizer.addEventListener('dblclick', resetConflictOutputHeight);
+}
+
 function renderConflictEditor() {
   const resolution = state.conflictResolution;
   if (!resolution) return;
@@ -1734,16 +1830,19 @@ function renderConflictEditor() {
   const ours = conflictCommitDetails('ours');
   const theirs = conflictCommitDetails('theirs');
   const complete = hunks.length > 0 && selections.every((selection) => selection.ours || selection.theirs);
-  const conflictLabel = `${hunks.length} conflit${hunks.length > 1 ? 's' : ''}`;
-  $('#history-view').innerHTML = `<div class="merge-editor"><header class="merge-editor-toolbar"><strong><span>⚠</span> ${escapeHtml(file)} <small>(${conflictLabel})</small></strong><div><span>UTF-8</span><button id="open-external-merge-tool" type="button">Ouvrir dans l’outil de fusion externe ↗</button><button id="save-conflict-result" type="button" class="save"${complete ? '' : ' disabled'}>Enregistrer</button><button id="close-diff-preview" type="button" title="Fermer" aria-label="Fermer">×</button></div></header><div class="merge-editor-columns">
+  const conflictedFileCount = state.snapshot.status.files.filter((statusFile) => statusFile.conflicted).length;
+  const conflictLabel = `${hunks.length} conflit${hunks.length > 1 ? 's' : ''} dans ce fichier`;
+  const conflictedFileLabel = `${conflictedFileCount} fichier${conflictedFileCount > 1 ? 's' : ''} en conflit au total`;
+  $('#history-view').innerHTML = `<div class="merge-editor"><header class="merge-editor-toolbar"><strong><span>⚠</span> ${escapeHtml(file)}</strong><span class="merge-conflict-count" aria-label="${conflictLabel}, ${conflictedFileLabel}"><b>${conflictLabel}</b><small>${conflictedFileLabel}</small></span><div><span>UTF-8</span><button id="save-conflict-result" type="button" class="save"${complete ? '' : ' disabled'}>Enregistrer</button><button id="close-diff-preview" type="button" title="Fermer" aria-label="Fermer">×</button></div></header><div class="merge-editor-columns">
     <section class="merge-side ours"><header><label><input type="checkbox" data-conflict-all="ours"><b>A</b></label><strong>Commit ${escapeHtml(ours.shortHash)} sur <em>${escapeHtml(ours.branchName)}</em></strong></header><div class="merge-code">${renderConflictSide(versions.ours, hunks, selections, 'ours')}</div></section>
     <section class="merge-side theirs"><header><label><input type="checkbox" data-conflict-all="theirs"><b>B</b></label><strong>Commit ${escapeHtml(theirs.shortHash)} sur <em>${escapeHtml(theirs.branchName)}</em></strong></header><div class="merge-code">${renderConflictSide(versions.theirs, hunks, selections, 'theirs')}</div></section>
-  </div></div>`;
+  </div><div class="merge-output-resizer" role="separator" aria-label="Redimensionner le panneau Output" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100" aria-valuenow="40" tabindex="0"><span></span></div>${renderConflictOutput(resolution)}</div>`;
   $('#close-diff-preview').addEventListener('click', closeDiffPreview);
-  $('#open-external-merge-tool').addEventListener('click', () => action('', () => window.forkline.openFile(file).then(unwrap)));
   $('#save-conflict-result').addEventListener('click', () => saveSelectedConflictResult());
   $$('[data-conflict-side]').forEach((input) => input.addEventListener('change', () => {
-    state.conflictResolution.selections[Number(input.dataset.conflictIndex)][input.dataset.conflictSide] = input.checked;
+    const conflictIndex = Number(input.dataset.conflictIndex);
+    state.conflictResolution.activeConflictIndex = conflictIndex;
+    state.conflictResolution.selections[conflictIndex][input.dataset.conflictSide] = input.checked;
     renderConflictEditor();
   }));
   $$('[data-conflict-all]').forEach((input) => {
@@ -1756,6 +1855,18 @@ function renderConflictEditor() {
       renderConflictEditor();
     });
   });
+  $$('[data-conflict-navigation]').forEach((button) => button.addEventListener('click', () => {
+    const direction = button.dataset.conflictNavigation === 'previous' ? -1 : 1;
+    state.conflictResolution.activeConflictIndex = Math.min(hunks.length - 1, Math.max(0, state.conflictResolution.activeConflictIndex + direction));
+    renderConflictEditor();
+  }));
+  $('#reset-conflict-output').addEventListener('click', () => {
+    const selection = state.conflictResolution.selections[state.conflictResolution.activeConflictIndex];
+    selection.ours = false;
+    selection.theirs = false;
+    renderConflictEditor();
+  });
+  bindConflictOutputResizer();
 }
 
 function selectedConflictContent(resolution) {
