@@ -563,7 +563,30 @@ class GitService {
     const exists = async (entry) => fs.access(path.join(gitDirectory, entry)).then(() => true).catch(() => false);
     if (await exists('rebase-apply/applying')) return { type: 'am', label: 'Application de patch en cours' };
     if (await exists('rebase-merge') || await exists('rebase-apply')) return { type: 'rebase', label: 'Rebase en cours' };
-    if (await exists('MERGE_HEAD')) return { type: 'merge', label: 'Fusion en cours' };
+    if (await exists('MERGE_HEAD')) {
+      const [sourceHash, target, message] = await Promise.all([
+        this.run(['rev-parse', 'MERGE_HEAD']).then((value) => value.trim()),
+        this.head(),
+        fs.readFile(path.join(gitDirectory, 'MERGE_MSG'), 'utf8').catch(() => ''),
+      ]);
+      const refs = await this.run(['for-each-ref', `--points-at=${sourceHash}`, '--format=%(refname:short)', 'refs/heads', 'refs/remotes']).catch(() => '');
+      const candidates = refs.split('\n').map((value) => value.trim()).filter((value) => value && value !== target && !value.endsWith('/HEAD'));
+      const messageSource = message.match(/^Merge (?:remote-tracking )?branch ['‘]([^'’]+)['’]/m)?.[1] || '';
+      const source = candidates.find((value) => value === messageSource || value.endsWith(`/${messageSource}`)) || candidates[0] || messageSource || sourceHash.slice(0, 10);
+      const conflictPaths = [];
+      let readingConflicts = false;
+      for (const line of message.split('\n')) {
+        if (line.trim() === '# Conflicts:') {
+          readingConflicts = true;
+          continue;
+        }
+        if (!readingConflicts) continue;
+        const conflict = line.match(/^#\s+(.+)$/)?.[1]?.trim();
+        if (!conflict) break;
+        conflictPaths.push(conflict);
+      }
+      return { type: 'merge', label: 'Fusion en cours', source, target, defaultMessage: message.trim(), conflictPaths };
+    }
     if (await exists('CHERRY_PICK_HEAD')) return { type: 'cherry-pick', label: 'Cherry-pick en cours' };
     if (await exists('REVERT_HEAD')) return { type: 'revert', label: 'Revert en cours' };
     return null;
@@ -931,6 +954,13 @@ class GitService {
     if (stats?.isSymbolicLink()) throw new GitError('La résolution directe d’un lien symbolique n’est pas prise en charge.');
     await fs.writeFile(absolutePath, content, 'utf8');
     await this.run(['add', '--', filePath]);
+    return true;
+  }
+
+  async resolveAllConflicts() {
+    const conflicts = (await this.status()).files.filter((file) => file.conflicted).map((file) => file.path);
+    if (!conflicts.length) throw new GitError('Aucun fichier en conflit à marquer comme résolu.');
+    await this.run(['add', '--', ...conflicts]);
     return true;
   }
 
@@ -1332,9 +1362,16 @@ class GitService {
     }
   }
 
-  async continueOperation(type) {
+  async continueOperation(type, options = {}) {
     const operation = await this.operationState();
     if (!operation || operation.type !== type) throw new GitError('Cette opération Git n’est pas en cours.');
+    if ((await this.status()).files.some((file) => file.conflicted)) throw new GitError('Résolvez tous les fichiers en conflit avant de poursuivre.');
+    const message = typeof options?.message === 'string' ? options.message.trim() : '';
+    if (type === 'merge' && message) {
+      return this.runConflictAware(['commit', '-m', message], {
+        env: { ...process.env, LC_ALL: 'C.UTF-8', GIT_EDITOR: 'true' },
+      });
+    }
     const commands = {
       merge: ['merge', '--continue'],
       rebase: ['rebase', '--continue'],

@@ -65,6 +65,20 @@ test('allocates separate lanes to independent branch tips', () => {
   assert.equal(graph.rows[1].startsHere, true);
 });
 
+test('keeps the active branch vertical while a sibling branch rejoins it', () => {
+  const graph = layoutCommitGraph([
+    { hash: 'source-tip', parents: ['base'] },
+    { hash: 'active-tip', parents: ['base'] },
+    { hash: 'base', parents: ['root'] },
+    { hash: 'root', parents: [] },
+  ], { headHash: 'active-tip', showWorkingTree: true });
+
+  assert.deepEqual(graph.rows.map((row) => row.lane), [1, 0, 0, 0]);
+  assert.deepEqual(graph.rows[1].connections.map(({ from, to }) => [from, to]), [[0, 0]]);
+  assert.deepEqual(graph.rows[1].joins.map(({ from, to, hash }) => [from, to, hash]), [[1, 0, 'base']]);
+  assert.deepEqual(graph.rows[1].transitions, []);
+});
+
 test('assigns a fresh color when a freed lane is reused by another branch', () => {
   const graph = layoutCommitGraph([
     { hash: 'feature-tip', parents: [] },

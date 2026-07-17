@@ -371,6 +371,7 @@ app.whenReady().then(() => {
   handle('repository:unstage', async (files) => (await repositoryWatcher.mutate(() => git.unstage(files))).snapshot);
   handle('repository:apply-hunk', async (patch, staged, reverse) => (await repositoryWatcher.mutate(() => git.applyHunk(patch, staged, reverse))).snapshot);
   handle('repository:resolve-conflict', async (file, strategy) => (await repositoryWatcher.mutate(() => git.resolveConflict(file, strategy))).snapshot);
+  handle('repository:resolve-all-conflicts', async () => (await repositoryWatcher.mutate(() => git.resolveAllConflicts())).snapshot);
   handle('repository:conflict-versions', (file) => git.conflictVersions(file));
   handle('repository:resolve-conflict-content', async (file, content) => (await repositoryWatcher.mutate(() => git.resolveConflictContent(file, content))).snapshot);
   handle('repository:commit', async (message, options) => repositoryWatcher.mutate(() => git.commit(message, options)));
@@ -469,8 +470,8 @@ app.whenReady().then(() => {
     const { output, snapshot } = await repositoryWatcher.mutate(() => git.interactiveRebase(baseRevision, plan));
     return { ...output, snapshot };
   });
-  handle('repository:continue-operation', async (type) => {
-    const { output, snapshot } = await repositoryWatcher.mutate(() => git.continueOperation(type));
+  handle('repository:continue-operation', async (type, options) => {
+    const { output, snapshot } = await repositoryWatcher.mutate(() => git.continueOperation(type, options));
     return { ...output, snapshot };
   });
   handle('repository:abort-operation', async (type) => (await repositoryWatcher.mutate(() => git.abortOperation(type))).snapshot);

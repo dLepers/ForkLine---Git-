@@ -148,9 +148,20 @@
       lanes[lane] = null;
       laneColors[lane] = null;
       const connections = [];
+      const joins = [];
 
       commit.parents.forEach((parent, parentIndex) => {
         let target = lanes.indexOf(parent);
+        if (parentIndex === 0 && lane === 0 && commit.hash === options.headHash && target > 0) {
+          const joiningColor = laneColors[target];
+          lanes[target] = null;
+          laneColors[target] = null;
+          lanes[lane] = parent;
+          laneColors[lane] = laneColor;
+          connections.push({ from: lane, to: lane, parentIndex, fromColor: laneColor, toColor: laneColor });
+          joins.push({ from: target, to: lane, hash: parent, color: joiningColor });
+          return;
+        }
         if (target === -1) {
           if (parentIndex === 0) {
             // Le parent principal continue EXACTEMENT dans la même colonne :
@@ -230,6 +241,7 @@
         transitions,
         transitionColors,
         connections,
+        joins,
         anchorHash: commit.hash,
       });
     }

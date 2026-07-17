@@ -14,6 +14,7 @@ const state = {
   rebaseBaseHash: null,
   rebasePlan: [],
   conflictResolution: null,
+  conflictUi: { operationKey: null, listMode: 'path', summary: '', description: '' },
   compareSelection: [],
   gitProfiles: [],
   assignedProfileId: null,
@@ -151,8 +152,13 @@ function statusLabel(file) {
   return code === '?' ? 'N' : code || 'M';
 }
 
+function hasActiveConflicts(snapshot = state.snapshot) {
+  return Boolean(snapshot?.operation && snapshot.status?.files?.some((file) => file.conflicted));
+}
+
 function applySnapshot(snapshot, options = {}) {
   if (snapshot.repositoryRevision && state.snapshot?.repositoryRevision >= snapshot.repositoryRevision) return false;
+  const conflictWasVisible = !$('#conflict-detail').classList.contains('hidden');
   state.snapshot = snapshot;
   state.compareSelection = state.compareSelection.filter((hash) => snapshot.commits.some((commit) => commit.hash === hash)).slice(-2);
   const repoName = basename(snapshot.repository);
@@ -182,6 +188,10 @@ function applySnapshot(snapshot, options = {}) {
   if (!options.preserveHistory) renderCommits();
   renderChanges();
   renderWorktreeInspector();
+  renderConflictInspector();
+  const activeConflicts = hasActiveConflicts(snapshot);
+  if (activeConflicts && !options.preserveInspector) showInspector('#conflict-detail');
+  else if (!activeConflicts && (conflictWasVisible || snapshot.operation)) showInspector('#worktree-detail');
   $('#welcome').classList.add('hidden');
   $('#workspace').classList.remove('hidden');
   return true;
@@ -360,7 +370,7 @@ async function executeRepositoryAction(label, callback) {
   if (snapshot?.commits) applySnapshot(snapshot);
   if (result.conflicted) {
     toast(`Conflits dans ${result.conflicts.length} fichier${result.conflicts.length > 1 ? 's' : ''}. Résolvez-les dans le travail en cours.`, true);
-    showInspector('#worktree-detail');
+    showInspector('#conflict-detail');
   } else if (label) toast(label);
   return result;
 }
@@ -1088,6 +1098,9 @@ function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTre
     if (from === to) return;
     paths.push(`<path class="graph-curve${isStash && from === row.lane ? ' stash-edge' : ''}" d="M ${x(from)} ${centerY} C ${x(from)} 34, ${x(to)} 32, ${x(to)} 44" stroke="${graphColor(toColor)}"/>`);
   });
+  row.joins?.forEach(({ from, to, color: joinColor }) => {
+    paths.push(`<path class="graph-curve graph-join" d="M ${x(from)} ${centerY} C ${x(from)} 34, ${x(to)} 32, ${x(to)} 44" stroke="${graphColor(joinColor)}"/>`);
+  });
   row.transitions?.forEach(({ from, to }, transitionIndex) => {
     if (from === to) return;
     paths.push(`<path class="graph-transition" d="M ${x(from)} 44 C ${x(from)} 44, ${x(to)} 44, ${x(to)} 44" stroke="${graphColor(row.transitionColors?.[transitionIndex])}"/>`);
@@ -1140,11 +1153,15 @@ function renderStashGraphRow(stash, row, stashLane, laneCount, graphWidth) {
   </svg>`;
 }
 
-function renderWorkingTreeRow(node, laneCount, graphWidth, changeCount) {
+function renderWorkingTreeRow(node, laneCount, graphWidth, changeCount, operation = null) {
   const spacing = 16;
   const width = graphWidth || graphLaneWidth(laneCount);
   const laneWidth = graphLaneWidth(laneCount);
   const centerX = Math.max(0, width - laneWidth) + 6 + node.lane * spacing;
+  if (operation) return `<svg class="working-tree-graph conflict-working-tree-graph" width="${width}" height="44" viewBox="0 0 ${width} 44" aria-hidden="true">
+    <path class="conflict-working-tree-link" d="M ${centerX} 13 L ${centerX} 44"/>
+    <circle class="conflict-working-tree-node" cx="${centerX}" cy="13" r="6.5"/>
+  </svg>`;
   return `<svg class="working-tree-graph" width="${width}" height="44" viewBox="0 0 ${width} 44" aria-hidden="true">
     <path class="working-tree-link" d="M 79 13 H ${centerX}"/>
     <rect class="working-tree-badge" x="4" y="4" width="75" height="18" rx="3"/>
@@ -1284,7 +1301,8 @@ function renderCommits() {
     const refsWidth = graphLabelGroupMetrics(graphLabelDetails(commit, graphColor(0))).width;
     return Math.max(width, refsWidth);
   }, 0);
-  const workingTreeLabelWidth = graph.workingTreeNode ? 75 : 0;
+  const activeConflicts = hasActiveConflicts();
+  const workingTreeLabelWidth = graph.workingTreeNode && !activeConflicts ? 75 : 0;
   const labelArea = Math.max(labelWidth, workingTreeLabelWidth);
   const graphWidth = Math.max(46, graphLaneWidth(displayLaneCount) + (labelArea ? labelArea + 2 : 0));
   $('#commits').style.setProperty('--graph-width', `${graphWidth}px`);
@@ -1292,9 +1310,13 @@ function renderCommits() {
   const rows = [];
   commits.forEach((commit, index) => {
     if (graph.workingTreeNode && index === 0) {
-      rows.push(`<button class="working-tree-row" type="button" title="Afficher les modifications locales">
-        ${renderWorkingTreeRow(graph.workingTreeNode, displayLaneCount, graphWidth, state.snapshot.status.files.length)}
-        <span></span>
+      const operation = activeConflicts ? state.snapshot.operation : null;
+      const operationMessage = operation?.type === 'merge'
+        ? `Des conflits ont été détectés pendant la fusion dans ${operation.target || state.snapshot.head}`
+        : operation ? `${operation.label} · des conflits doivent être résolus` : '';
+      rows.push(`<button class="working-tree-row${operation ? ' operation-working-tree-row' : ''}" type="button" title="${operation ? 'Afficher les conflits' : 'Afficher les modifications locales'}">
+        ${renderWorkingTreeRow(graph.workingTreeNode, displayLaneCount, graphWidth, state.snapshot.status.files.length, operation)}
+        <span class="operation-graph-message">${operation ? `<b>⚠</b> ${escapeHtml(operationMessage)}` : ''}</span>
         <span></span><span></span>
       </button>`);
     }
@@ -1344,7 +1366,7 @@ function renderCommits() {
     event.stopPropagation();
     showBranchContextMenu(label.dataset.graphBranch, event.clientX, event.clientY);
   }));
-  $$('.working-tree-row').forEach((row) => row.addEventListener('click', () => showInspector('#worktree-detail')));
+  $$('.working-tree-row').forEach((row) => row.addEventListener('click', () => showInspector(hasActiveConflicts() ? '#conflict-detail' : '#worktree-detail')));
   renderComparisonBar();
 }
 
@@ -1389,18 +1411,22 @@ function renderChanges() {
 function renderWorktreeInspector() {
   const files = state.snapshot.status.files;
   const operation = state.snapshot.operation;
+  const activeConflicts = hasActiveConflicts();
+  const operationHelp = activeConflicts
+    ? 'Utilisez le panneau de conflits pour résoudre les fichiers avant de poursuivre.'
+    : 'Tous les conflits sont résolus. Vérifiez les modifications indexées puis terminez l’opération.';
   $('#worktree-detail').innerHTML = `
-    ${operation ? `<section class="operation-banner"><div><p class="eyebrow">OPÉRATION GIT</p><strong>${escapeHtml(operation.label)}</strong><span>Résolvez les conflits par clic droit sur un fichier, puis continuez.</span></div><div><button class="button button-small" data-operation-action="abort">Abandonner</button><button class="button button-small button-primary" data-operation-action="continue">Continuer</button></div></section>` : ''}
+    ${operation ? `<section class="operation-banner"><div><p class="eyebrow">OPÉRATION GIT</p><strong>${escapeHtml(operation.label)}</strong><span>${operationHelp}</span></div><div><button class="button button-small" data-operation-action="abort">Abandonner</button>${activeConflicts ? '<button class="button button-small button-primary" data-operation-action="open">Afficher les conflits</button>' : ''}</div></section>` : ''}
     <header class="worktree-header"><div><p class="eyebrow">TRAVAIL EN COURS</p><h3>${files.length} fichier${files.length > 1 ? 's' : ''} modifié${files.length > 1 ? 's' : ''}</h3></div><button class="text-button" data-worktree-action="stage-all">Tout ajouter</button></header>
     <div class="worktree-files"><h4>Fichiers non indexés <span>${files.filter((file) => !file.staged).length}</span></h4><div id="worktree-unstaged-files" class="file-list"></div><h4>Fichiers indexés <span>${files.filter((file) => file.staged).length}</span></h4><div id="worktree-staged-files" class="file-list"></div></div>
-    <div class="worktree-commit"><label for="worktree-commit-message">RÉSUMÉ DU COMMIT</label><textarea id="worktree-commit-message" rows="4" placeholder="Décrire clairement ce qui change…"></textarea><label class="commit-option"><input id="worktree-commit-amend" type="checkbox"><span>Modifier le dernier commit</span></label><label class="commit-option"><input id="worktree-commit-sign" type="checkbox"${state.snapshot.commitPreferences?.gpgSign ? ' checked' : ''}><span>Signer ce commit</span></label><button class="button button-primary" data-worktree-action="commit">Créer le commit</button></div>`;
+    <div class="worktree-commit"><label for="worktree-commit-message">RÉSUMÉ DU COMMIT</label><textarea id="worktree-commit-message" rows="4" placeholder="${escapeHtml(operation?.defaultMessage?.split('\n')[0] || 'Décrire clairement ce qui change…')}"></textarea><label class="commit-option"><input id="worktree-commit-amend" type="checkbox"${operation ? ' disabled' : ''}><span>Modifier le dernier commit</span></label><label class="commit-option"><input id="worktree-commit-sign" type="checkbox"${state.snapshot.commitPreferences?.gpgSign ? ' checked' : ''}><span>Signer ce commit</span></label><button class="button button-primary" data-worktree-action="commit">${operation && !activeConflicts ? (operation.type === 'merge' ? 'Terminer la fusion' : 'Poursuivre l’opération') : 'Créer le commit'}</button></div>`;
   renderFileList('#worktree-staged-files', files.filter((file) => file.staged), true);
   renderFileList('#worktree-unstaged-files', files.filter((file) => file.workingTree !== ' ' || file.untracked), false);
   $$('[data-operation-action]').forEach((button) => button.addEventListener('click', async () => {
     const mode = button.dataset.operationAction;
+    if (mode === 'open') return showInspector('#conflict-detail');
     if (mode === 'abort' && !window.confirm(`Abandonner l’opération « ${operation.label} » ?`)) return;
-    const method = mode === 'continue' ? 'continueOperation' : 'abortOperation';
-    await executeRepositoryAction(mode === 'continue' ? 'Opération poursuivie' : 'Opération abandonnée', () => window.forkline[method](operation.type));
+    await executeRepositoryAction('Opération abandonnée', () => window.forkline.abortOperation(operation.type));
   }));
   $('[data-worktree-action="stage-all"]').addEventListener('click', async () => {
     const paths = files.filter((file) => file.workingTree !== ' ' || file.untracked).map((file) => file.path);
@@ -1408,6 +1434,10 @@ function renderWorktreeInspector() {
   });
   $('[data-worktree-action="commit"]').addEventListener('click', async () => {
     const message = $('#worktree-commit-message').value.trim();
+    if (operation && !activeConflicts) {
+      await executeRepositoryAction(operation.type === 'merge' ? 'Fusion terminée' : 'Opération poursuivie', () => window.forkline.continueOperation(operation.type, { message }));
+      return;
+    }
     const amend = $('#worktree-commit-amend').checked;
     const sign = $('#worktree-commit-sign').checked;
     const result = await action(amend ? 'Dernier commit modifié' : 'Commit créé', () => window.forkline.commit(message, { amend, sign }).then(unwrap));
@@ -1416,6 +1446,90 @@ function renderWorktreeInspector() {
   $('#worktree-commit-amend').addEventListener('change', (event) => {
     if (event.target.checked && !$('#worktree-commit-message').value.trim()) $('#worktree-commit-message').value = state.snapshot.commits.find((commit) => commit.hash === state.snapshot.headHash)?.subject || '';
   });
+}
+
+function renderConflictInspector() {
+  const operation = state.snapshot.operation;
+  const panel = $('#conflict-detail');
+  if (!operation || !hasActiveConflicts()) {
+    state.conflictUi = { operationKey: null, listMode: state.conflictUi.listMode, summary: '', description: '' };
+    panel.innerHTML = '';
+    return;
+  }
+
+  const operationKey = `${operation.type}:${operation.source || ''}:${operation.target || state.snapshot.head}:${state.snapshot.headHash || ''}`;
+  if (state.conflictUi.operationKey !== operationKey) {
+    state.conflictUi.operationKey = operationKey;
+    state.conflictUi.summary = '';
+    state.conflictUi.description = '';
+  }
+  const conflicted = state.snapshot.status.files.filter((file) => file.conflicted);
+  const knownConflictPaths = operation.conflictPaths?.length
+    ? operation.conflictPaths
+    : state.snapshot.status.files.filter((file) => file.conflicted || file.staged).map((file) => file.path);
+  const unresolvedPaths = new Set(conflicted.map((file) => file.path));
+  const resolved = knownConflictPaths.filter((file) => !unresolvedPaths.has(file)).map((file) => (
+    state.snapshot.status.files.find((entry) => entry.path === file) || { path: file, staged: true }
+  ));
+  const merge = operation.type === 'merge';
+  const heading = merge ? 'Conflits de fusion détectés' : 'Conflits détectés';
+  const context = merge && operation.source
+    ? `Fusion de <strong>${escapeHtml(operation.source)}</strong> dans <strong>${escapeHtml(operation.target || state.snapshot.head)}</strong>`
+    : escapeHtml(operation.label);
+  const fileLabel = (file) => {
+    if (state.conflictUi.listMode === 'path') return `<span>${escapeHtml(file.path)}</span>`;
+    const directory = file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : '.';
+    return `<span><strong>${escapeHtml(basename(file.path))}</strong><small>${escapeHtml(directory)}</small></span>`;
+  };
+  const conflictRows = conflicted.length
+    ? conflicted.map((file) => `<button type="button" class="conflict-file-row" data-conflict-file="${escapeHtml(file.path)}"><span class="conflict-warning">⚠</span>${fileLabel(file)}</button>`).join('')
+    : '<p class="conflict-list-empty success">Tous les conflits sont résolus.</p>';
+  const resolvedRows = resolved.length
+    ? resolved.map((file) => `<button type="button" class="conflict-file-row resolved" data-resolved-file="${escapeHtml(file.path)}"><span class="conflict-resolved">✓</span>${fileLabel(file)}</button>`).join('')
+    : '<p class="conflict-list-empty">Aucun fichier résolu.</p>';
+  const continueLabel = merge ? 'Terminer la fusion' : 'Poursuivre l’opération';
+  panel.innerHTML = `<section class="conflict-panel-header"><strong><span>⚠</span> ${heading}</strong><p>${context}</p></section>
+    <div class="conflict-list-toolbar"><span>Trier</span><div><button type="button" data-conflict-list-mode="path" class="${state.conflictUi.listMode === 'path' ? 'active' : ''}">☰ Chemin</button><button type="button" data-conflict-list-mode="tree" class="${state.conflictUi.listMode === 'tree' ? 'active' : ''}">⚑ Arbre</button></div></div>
+    <section class="conflict-file-section"><header><strong>Fichiers en conflit (${conflicted.length})</strong><button type="button" id="resolve-all-conflicts"${conflicted.length ? '' : ' disabled'}>Tout marquer résolu</button></header><div>${conflictRows}</div></section>
+    <section class="conflict-file-section resolved-section"><header><strong>Fichiers résolus (${resolved.length})</strong></header><div>${resolvedRows}</div></section>
+    <section class="conflict-commit-form"><label for="conflict-commit-summary">RÉSUMÉ DU COMMIT</label><input id="conflict-commit-summary" maxlength="72" placeholder="${escapeHtml(operation.defaultMessage?.split('\n')[0] || 'Message de fusion')}" value="${escapeHtml(state.conflictUi.summary)}"><label for="conflict-commit-description">DESCRIPTION</label><textarea id="conflict-commit-description" rows="3" placeholder="Description facultative">${escapeHtml(state.conflictUi.description)}</textarea><div><button type="button" id="continue-conflict-operation" class="button button-primary"${conflicted.length ? ' disabled' : ''}>${continueLabel}</button><button type="button" id="abort-conflict-operation" class="button danger">${merge ? 'Abandonner la fusion' : 'Abandonner'}</button></div></section>`;
+
+  $$('[data-conflict-list-mode]').forEach((button) => button.addEventListener('click', () => {
+    state.conflictUi.listMode = button.dataset.conflictListMode;
+    renderConflictInspector();
+  }));
+  $$('[data-conflict-file]').forEach((button) => button.addEventListener('click', () => selectConflictFile(button.dataset.conflictFile)));
+  $$('[data-resolved-file]').forEach((button) => button.addEventListener('click', () => selectFile(button.dataset.resolvedFile, true)));
+  $('#conflict-commit-summary').addEventListener('input', (event) => { state.conflictUi.summary = event.target.value; });
+  $('#conflict-commit-description').addEventListener('input', (event) => { state.conflictUi.description = event.target.value; });
+  $('#resolve-all-conflicts').addEventListener('click', resolveAllConflicts);
+  $('#continue-conflict-operation').addEventListener('click', continueConflictOperation);
+  $('#abort-conflict-operation').addEventListener('click', abortConflictOperation);
+}
+
+async function resolveAllConflicts() {
+  const snapshot = await action('Tous les conflits ont été marqués comme résolus', () => window.forkline.resolveAllConflicts().then(unwrap));
+  if (snapshot) applySnapshot(snapshot);
+}
+
+async function continueConflictOperation() {
+  const operation = state.snapshot.operation;
+  if (!operation) return;
+  const summary = state.conflictUi.summary.trim();
+  const description = state.conflictUi.description.trim();
+  const message = summary ? `${summary}${description ? `\n\n${description}` : ''}` : '';
+  await executeRepositoryAction(operation.type === 'merge' ? 'Fusion terminée' : 'Opération poursuivie', () => window.forkline.continueOperation(operation.type, { message }));
+}
+
+async function abortConflictOperation() {
+  const operation = state.snapshot.operation;
+  if (!operation || !window.confirm(`Abandonner l’opération « ${operation.label} » ?`)) return;
+  const snapshot = await action(operation.type === 'merge' ? 'Fusion abandonnée' : 'Opération abandonnée', () => window.forkline.abortOperation(operation.type).then(unwrap));
+  if (snapshot) {
+    state.conflictResolution = null;
+    applySnapshot(snapshot);
+    showInspector('#worktree-detail');
+  }
 }
 
 function renderFileList(selector, files, staged) {
@@ -1462,7 +1576,7 @@ function showFileContextMenu(file, x, y) {
 
 async function resolveConflict(file, strategy) {
   await executeRepositoryAction('Conflit marqué comme résolu', () => window.forkline.resolveConflict(file, strategy));
-  showInspector('#worktree-detail');
+  showInspector(hasActiveConflicts() ? '#conflict-detail' : '#worktree-detail');
 }
 
 async function showFileHistory(file) {
@@ -1478,7 +1592,7 @@ async function showFileBlame(file) {
 }
 
 function showInspector(id) {
-  ['#inspector-empty', '#commit-detail', '#worktree-detail', '#stash-detail', '#diff-detail'].forEach((selector) => $(selector).classList.toggle('hidden', selector !== id));
+  ['#inspector-empty', '#commit-detail', '#worktree-detail', '#conflict-detail', '#stash-detail', '#diff-detail'].forEach((selector) => $(selector).classList.toggle('hidden', selector !== id));
 }
 
 function selectCommit(hash) {
@@ -1543,22 +1657,18 @@ async function selectConflictFile(file) {
   state.selectedFile = `false:${file}`;
   const versions = await action('', () => window.forkline.conflictVersions(file).then(unwrap));
   if (!versions) return;
-  state.conflictResolution = { file, content: versions.result, hunks: parseConflictHunks(versions.result) };
+  const hunks = parseConflictHunks(versions.result);
+  state.conflictResolution = {
+    file,
+    content: versions.result,
+    versions,
+    hunks,
+    selections: hunks.map(() => ({ ours: false, theirs: false })),
+  };
   $('#history-view').classList.remove('hidden');
   $('#changes-view').classList.add('hidden');
   $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === 'history'));
-  $('#history-view').innerHTML = `<div class="conflict-preview"><header><div><p class="eyebrow">RÉSOLUTION DE CONFLIT</p><h3>${escapeHtml(file)}</h3></div><button id="close-diff-preview" type="button" class="icon-button" title="Fermer">×</button></header><div class="conflict-columns"><section><h4>BASE</h4><pre>${escapeHtml(versions.base || 'Version absente')}</pre></section><section><h4>OURS</h4><pre>${escapeHtml(versions.ours || 'Version absente')}</pre><button type="button" class="button button-small" data-conflict-whole="ours">Utiliser ours</button></section><section><h4>THEIRS</h4><pre>${escapeHtml(versions.theirs || 'Version absente')}</pre><button type="button" class="button button-small" data-conflict-whole="theirs">Utiliser theirs</button></section></div><section class="conflict-result"><div><p class="eyebrow">RÉSULTAT</p><button id="save-conflict-result" type="button" class="button button-small button-primary">Marquer comme résolu</button></div><div id="conflict-hunks"></div><textarea id="conflict-result-content" spellcheck="false"></textarea></section></div>`;
-  $('#close-diff-preview').addEventListener('click', closeDiffPreview);
-  $('[data-conflict-whole="ours"]').addEventListener('click', () => resolveConflict(file, 'ours'));
-  $('[data-conflict-whole="theirs"]').addEventListener('click', () => resolveConflict(file, 'theirs'));
-  $('#conflict-result-content').value = versions.result;
-  $('#conflict-result-content').addEventListener('input', (event) => {
-    state.conflictResolution.content = event.target.value;
-    state.conflictResolution.hunks = parseConflictHunks(event.target.value);
-    renderConflictHunks();
-  });
-  $('#save-conflict-result').addEventListener('click', () => saveConflictContent(file, $('#conflict-result-content').value));
-  renderConflictHunks();
+  renderConflictEditor();
 }
 
 function parseConflictHunks(content) {
@@ -1569,20 +1679,103 @@ function parseConflictHunks(content) {
   return hunks;
 }
 
-function renderConflictHunks() {
-  const hunks = state.conflictResolution?.hunks || [];
-  $('#conflict-hunks').innerHTML = hunks.length ? hunks.map((hunk, index) => `<article class="conflict-hunk-choice"><header><strong>Conflit ${index + 1}</strong><span><button type="button" data-conflict-hunk="${index}" data-choice="ours">Choisir ours</button><button type="button" data-conflict-hunk="${index}" data-choice="both">Garder les deux</button><button type="button" data-conflict-hunk="${index}" data-choice="theirs">Choisir theirs</button></span></header><div><pre>${escapeHtml(hunk.ours)}</pre><pre>${escapeHtml(hunk.theirs)}</pre></div></article>`).join('') : '<p class="conflict-clean">Aucun marqueur de conflit restant.</p>';
-  $$('[data-conflict-hunk]').forEach((button) => button.addEventListener('click', () => chooseConflictHunk(Number(button.dataset.conflictHunk), button.dataset.choice)));
+function conflictSideLines(content, hunks, side) {
+  const source = String(content || '');
+  const lines = source.split('\n');
+  const conflictByLine = new Map();
+  let searchFrom = 0;
+  hunks.forEach((hunk, hunkIndex) => {
+    const block = hunk[side];
+    if (!block) return;
+    let offset = source.indexOf(block, searchFrom);
+    if (offset < 0) offset = source.indexOf(block);
+    if (offset < 0) return;
+    const firstLine = source.slice(0, offset).split('\n').length - 1;
+    const lineCount = block.endsWith('\n') ? block.split('\n').length - 1 : block.split('\n').length;
+    for (let index = 0; index < lineCount; index += 1) conflictByLine.set(firstLine + index, hunkIndex);
+    searchFrom = offset + block.length;
+  });
+  if (lines.length > 1 && lines.at(-1) === '') lines.pop();
+  return { lines, conflictByLine };
 }
 
-function chooseConflictHunk(index, choice) {
-  const hunk = state.conflictResolution.hunks[index];
-  if (!hunk) return;
-  const replacement = choice === 'ours' ? hunk.ours : choice === 'theirs' ? hunk.theirs : `${hunk.ours}${hunk.theirs}`;
-  state.conflictResolution.content = `${state.conflictResolution.content.slice(0, hunk.start)}${replacement}${state.conflictResolution.content.slice(hunk.end)}`;
-  state.conflictResolution.hunks = parseConflictHunks(state.conflictResolution.content);
-  $('#conflict-result-content').value = state.conflictResolution.content;
-  renderConflictHunks();
+function renderConflictSide(content, hunks, selections, side) {
+  const { lines, conflictByLine } = conflictSideLines(content, hunks, side);
+  const renderedChoices = new Set();
+  const rows = lines.map((line, lineIndex) => {
+    const hunkIndex = conflictByLine.get(lineIndex);
+    const conflict = Number.isInteger(hunkIndex);
+    const firstConflictLine = conflict && !renderedChoices.has(hunkIndex);
+    if (firstConflictLine) renderedChoices.add(hunkIndex);
+    const checkbox = firstConflictLine
+      ? `<input type="checkbox" data-conflict-side="${side}" data-conflict-index="${hunkIndex}"${selections[hunkIndex][side] ? ' checked' : ''} aria-label="Choisir ${side === 'ours' ? 'A' : 'B'} pour le conflit ${hunkIndex + 1}">`
+      : '';
+    return `<div class="merge-code-line${conflict ? ` conflict-${side}` : ''}"><span class="merge-choice-gutter">${checkbox}</span><span class="merge-line-number">${lineIndex + 1}</span><code>${escapeHtml(line) || ' '}</code></div>`;
+  });
+  hunks.forEach((hunk, hunkIndex) => {
+    if (renderedChoices.has(hunkIndex)) return;
+    rows.push(`<div class="merge-code-line conflict-${side} empty-side"><span class="merge-choice-gutter"><input type="checkbox" data-conflict-side="${side}" data-conflict-index="${hunkIndex}"${selections[hunkIndex][side] ? ' checked' : ''} aria-label="Choisir ${side === 'ours' ? 'A' : 'B'} pour le conflit ${hunkIndex + 1}"></span><span class="merge-line-number">—</span><code>Version vide — supprimer ce bloc</code></div>`);
+  });
+  return rows.join('');
+}
+
+function conflictCommitDetails(side) {
+  const operation = state.snapshot.operation || {};
+  const branchName = side === 'ours' ? operation.target || state.snapshot.head : operation.source || 'theirs';
+  const branch = state.snapshot.branches.find((candidate) => candidate.name === branchName);
+  const hash = side === 'ours' ? state.snapshot.headHash : branch?.hash;
+  return { branchName, shortHash: hash?.slice(0, 7) || 'inconnu' };
+}
+
+function renderConflictEditor() {
+  const resolution = state.conflictResolution;
+  if (!resolution) return;
+  const { file, versions, hunks, selections } = resolution;
+  const ours = conflictCommitDetails('ours');
+  const theirs = conflictCommitDetails('theirs');
+  const complete = hunks.length > 0 && selections.every((selection) => selection.ours || selection.theirs);
+  const conflictLabel = `${hunks.length} conflit${hunks.length > 1 ? 's' : ''}`;
+  $('#history-view').innerHTML = `<div class="merge-editor"><header class="merge-editor-toolbar"><strong><span>⚠</span> ${escapeHtml(file)} <small>(${conflictLabel})</small></strong><div><span>UTF-8</span><button id="open-external-merge-tool" type="button">Ouvrir dans l’outil de fusion externe ↗</button><button id="save-conflict-result" type="button" class="save"${complete ? '' : ' disabled'}>Enregistrer</button><button id="close-diff-preview" type="button" title="Fermer" aria-label="Fermer">×</button></div></header><div class="merge-editor-columns">
+    <section class="merge-side ours"><header><label><input type="checkbox" data-conflict-all="ours"><b>A</b></label><strong>Commit ${escapeHtml(ours.shortHash)} sur <em>${escapeHtml(ours.branchName)}</em></strong></header><div class="merge-code">${renderConflictSide(versions.ours, hunks, selections, 'ours')}</div></section>
+    <section class="merge-side theirs"><header><label><input type="checkbox" data-conflict-all="theirs"><b>B</b></label><strong>Commit ${escapeHtml(theirs.shortHash)} sur <em>${escapeHtml(theirs.branchName)}</em></strong></header><div class="merge-code">${renderConflictSide(versions.theirs, hunks, selections, 'theirs')}</div></section>
+  </div></div>`;
+  $('#close-diff-preview').addEventListener('click', closeDiffPreview);
+  $('#open-external-merge-tool').addEventListener('click', () => action('', () => window.forkline.openFile(file).then(unwrap)));
+  $('#save-conflict-result').addEventListener('click', () => saveSelectedConflictResult());
+  $$('[data-conflict-side]').forEach((input) => input.addEventListener('change', () => {
+    state.conflictResolution.selections[Number(input.dataset.conflictIndex)][input.dataset.conflictSide] = input.checked;
+    renderConflictEditor();
+  }));
+  $$('[data-conflict-all]').forEach((input) => {
+    const side = input.dataset.conflictAll;
+    input.checked = selections.length > 0 && selections.every((selection) => selection[side]);
+    input.indeterminate = !input.checked && selections.some((selection) => selection[side]);
+    input.addEventListener('change', () => {
+      const checked = input.checked;
+      state.conflictResolution.selections.forEach((selection) => { selection[side] = checked; });
+      renderConflictEditor();
+    });
+  });
+}
+
+function selectedConflictContent(resolution) {
+  let content = resolution.content;
+  for (let index = resolution.hunks.length - 1; index >= 0; index -= 1) {
+    const hunk = resolution.hunks[index];
+    const selection = resolution.selections[index];
+    const replacement = `${selection.ours ? hunk.ours : ''}${selection.theirs ? hunk.theirs : ''}`;
+    content = `${content.slice(0, hunk.start)}${replacement}${content.slice(hunk.end)}`;
+  }
+  return content;
+}
+
+async function saveSelectedConflictResult() {
+  const resolution = state.conflictResolution;
+  if (!resolution?.hunks.length || resolution.selections.some((selection) => !selection.ours && !selection.theirs)) {
+    toast('Choisissez A, B ou les deux pour chaque conflit avant d’enregistrer.', true);
+    return;
+  }
+  await saveConflictContent(resolution.file, selectedConflictContent(resolution));
 }
 
 async function saveConflictContent(file, content) {
@@ -1592,7 +1785,7 @@ async function saveConflictContent(file, content) {
     state.conflictResolution = null;
     applySnapshot(snapshot);
     closeDiffPreview();
-    showInspector('#worktree-detail');
+    showInspector(hasActiveConflicts() ? '#conflict-detail' : '#worktree-detail');
   }
 }
 
@@ -1641,12 +1834,13 @@ function renderDiff(diff) {
 function closeDiffPreview() {
   state.selectedFile = null;
   state.selectedStash = null;
+  state.conflictResolution = null;
   renderStashes();
   renderCommits();
   $('#history-view').classList.remove('hidden');
   $('#changes-view').classList.add('hidden');
   $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === 'history'));
-  showInspector('#worktree-detail');
+  showInspector(hasActiveConflicts() ? '#conflict-detail' : '#worktree-detail');
 }
 
 function renderStashDetail(stash) {
@@ -1704,7 +1898,7 @@ async function runStashAction(operation, ref) {
   if (result.conflicted) {
     toast(`Conflits dans ${result.conflicts.length} fichier${result.conflicts.length > 1 ? 's' : ''}. Résolvez-les dans le travail en cours.`, true);
     renderCommits();
-    showInspector('#worktree-detail');
+    showInspector('#conflict-detail');
     return;
   }
   toast(labels[operation]);
@@ -1721,7 +1915,8 @@ async function toggleStage(file, staged) {
     state.snapshot = result;
     renderBranches();
     renderWorktreeInspector();
-    showInspector('#worktree-detail');
+    renderConflictInspector();
+    showInspector(hasActiveConflicts() ? '#conflict-detail' : '#worktree-detail');
     if ($('#preview-diff-action')) {
       $('#preview-diff-action').textContent = staged ? 'Ajouter à l’index' : 'Retirer de l’index';
     }
@@ -1790,6 +1985,10 @@ async function handleRepositoryUpdate(snapshot) {
   } else if (diffWasOpen) {
     state.selectedFile = null;
     state.selectedStash = null;
+  } else if (hasActiveConflicts(snapshot)) {
+    showInspector('#conflict-detail');
+  } else if (snapshot.operation) {
+    showInspector('#worktree-detail');
   } else if (selectedCommit && snapshot.commits.some((commit) => commit.hash === selectedCommit)) {
     selectCommit(selectedCommit);
   } else if (worktreeWasOpen) {

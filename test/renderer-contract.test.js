@@ -41,6 +41,51 @@ test('all preload IPC invocations have a main-process handler', () => {
   assert.deepEqual(missing, []);
 });
 
+test('merge conflicts open a dedicated GitKraken-style inspector with complete actions', () => {
+  assert.match(html, /id="conflict-detail"/);
+  assert.match(renderer, /activeConflicts && !options\.preserveInspector[^\n]*showInspector\('#conflict-detail'\)/);
+  assert.match(renderer, /Fichiers en conflit \(\$\{conflicted\.length\}\)/);
+  assert.match(renderer, /Fichiers résolus \(\$\{resolved\.length\}\)/);
+  assert.match(renderer, /id="resolve-all-conflicts"/);
+  assert.match(renderer, /window\.forkline\.resolveAllConflicts\(\)/);
+  assert.match(renderer, /window\.forkline\.continueOperation\(operation\.type, \{ message \}\)/);
+  assert.match(renderer, /window\.forkline\.abortOperation\(operation\.type\)/);
+  assert.match(preload, /resolveAllConflicts: \(\) => invoke\('repository:resolve-all-conflicts'\)/);
+});
+
+test('conflicted operations keep the graph topology visible without a WIP badge', () => {
+  assert.match(renderer, /workingTreeLabelWidth = graph\.workingTreeNode && !activeConflicts \? 75 : 0/);
+  assert.match(renderer, /renderWorkingTreeRow\(graph\.workingTreeNode, displayLaneCount, graphWidth, state\.snapshot\.status\.files\.length, operation\)/);
+  assert.match(renderer, /class="conflict-working-tree-node"/);
+  assert.match(renderer, /Des conflits ont été détectés pendant la fusion dans/);
+});
+
+test('resolved conflicts leave conflict mode while keeping the Git operation available', () => {
+  assert.match(renderer, /function hasActiveConflicts\(snapshot = state\.snapshot\)/);
+  assert.match(renderer, /snapshot\?\.operation && snapshot\.status\?\.files\?\.some\(\(file\) => file\.conflicted\)/);
+  assert.match(renderer, /!activeConflicts && \(conflictWasVisible \|\| snapshot\.operation\)[^\n]*showInspector\('#worktree-detail'\)/);
+  assert.match(renderer, /const operation = activeConflicts \? state\.snapshot\.operation : null/);
+  assert.match(renderer, /showInspector\(hasActiveConflicts\(\) \? '#conflict-detail' : '#worktree-detail'\)/);
+  assert.doesNotMatch(renderer, /state\.snapshot\.operation \? '#conflict-detail' : '#worktree-detail'/);
+  assert.match(renderer, /hasActiveConflicts\(snapshot\)[^\n]*\{\s*showInspector\('#conflict-detail'\)[\s\S]*snapshot\.operation[^\n]*\{\s*showInspector\('#worktree-detail'\)/);
+  assert.match(renderer, /Tous les conflits sont résolus\. Vérifiez les modifications indexées puis terminez l’opération\./);
+  assert.match(renderer, /operation && !activeConflicts[\s\S]*window\.forkline\.continueOperation\(operation\.type, \{ message \}\)/);
+  assert.match(renderer, /operation && !activeConflicts \? \(operation\.type === 'merge' \? 'Terminer la fusion'/);
+});
+
+test('the conflict editor follows GitKraken A/B selection and safe-save behavior', () => {
+  assert.match(renderer, /class="merge-editor-columns"/);
+  assert.match(renderer, /data-conflict-all="ours"/);
+  assert.match(renderer, /data-conflict-all="theirs"/);
+  assert.match(renderer, /data-conflict-side="\$\{side\}" data-conflict-index/);
+  assert.match(renderer, /selection\.ours \|\| selection\.theirs/);
+  assert.match(renderer, /selectedConflictContent\(resolution\)/);
+  assert.match(renderer, /window\.forkline\.openFile\(file\)/);
+  assert.match(renderer, /Ouvrir dans l’outil de fusion externe/);
+  assert.doesNotMatch(renderer, /class="conflict-columns"/);
+  assert.doesNotMatch(renderer, /id="conflict-result-content"/);
+});
+
 test('commit checkout distinguishes branch switching from detached HEAD', () => {
   assert.match(renderer, /const branchCheckoutLabel =[\s\S]*Basculer sur une branche pointant ici/);
   assert.match(renderer, /id: 'checkout-branch'.*label: branchCheckoutLabel/);
