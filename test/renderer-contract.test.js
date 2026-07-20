@@ -6,6 +6,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const renderer = read('src/renderer/app.js');
+const styles = read('src/renderer/styles.css');
 const html = read('src/renderer/index.html');
 const preload = read('src/preload.js');
 const main = read('src/main.js');
@@ -39,6 +40,19 @@ test('all preload IPC invocations have a main-process handler', () => {
   const missing = [...invokedChannels].filter((channel) => !handledChannels.has(channel)).sort();
 
   assert.deepEqual(missing, []);
+});
+
+test('commit graph nodes expose a GitKraken-style author tooltip', () => {
+  assert.match(renderer, /class="commit-node-target" data-commit-node="\$\{escapeHtml\(commit\.hash\)\}"/);
+  assert.match(renderer, /class="commit-node-hit-area"/);
+  assert.match(renderer, /function bindGraphNodeTooltips\(\)/);
+  assert.match(renderer, /node\.addEventListener\('pointerenter', \(event\) => showGraphNodeTooltip\(commit, event\)\)/);
+  assert.match(renderer, /<span>AUTEUR DU COMMIT<\/span><strong>\$\{escapeHtml\(commit\.author \|\| 'Auteur inconnu'\)\}<\/strong>/);
+  assert.match(renderer, /commit\.email \? `<small>\$\{escapeHtml\(commit\.email\)\}<\/small>` : ''/);
+  assert.match(renderer, /const commitDate = commit\.date \? new Date\(commit\.date\)\.toLocaleString\('fr'\) : ''/);
+  assert.match(renderer, /commitDate \? `<time>\$\{escapeHtml\(commitDate\)\}<\/time>` : ''/);
+  assert.match(renderer, /bindGraphNodeTooltips\(\);/);
+  assert.doesNotMatch(styles, /\.commit-node-target\s*\{[^}]*cursor:\s*help/);
 });
 
 test('merge conflicts open a dedicated GitKraken-style inspector with complete actions', () => {

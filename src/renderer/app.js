@@ -1121,8 +1121,48 @@ function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTre
   return `<svg class="commit-graph" width="${width}" height="44" viewBox="0 0 ${width} 44" aria-hidden="true">
     <g fill="none" stroke-width="2.5" stroke-linecap="round">${paths.join('')}</g>
     ${labelGroup}
-    ${nodeMarkup}
+    <g class="commit-node-target" data-commit-node="${escapeHtml(commit.hash)}">
+      ${nodeMarkup}
+      <circle class="commit-node-hit-area" cx="${x(row.lane)}" cy="${centerY}" r="10"/>
+    </g>
   </svg>`;
+}
+
+function hideGraphNodeTooltip() {
+  $('#graph-node-tooltip')?.remove();
+}
+
+function positionGraphNodeTooltip(tooltip, event) {
+  const gap = 12;
+  const bounds = tooltip.getBoundingClientRect();
+  tooltip.style.left = `${Math.max(8, Math.min(window.innerWidth - bounds.width - 8, event.clientX + gap))}px`;
+  tooltip.style.top = `${Math.max(8, Math.min(window.innerHeight - bounds.height - 8, event.clientY + gap))}px`;
+}
+
+function showGraphNodeTooltip(commit, event) {
+  hideGraphNodeTooltip();
+  const tooltip = document.createElement('div');
+  const commitDate = commit.date ? new Date(commit.date).toLocaleString('fr') : '';
+  tooltip.id = 'graph-node-tooltip';
+  tooltip.className = 'graph-node-tooltip';
+  tooltip.setAttribute('role', 'tooltip');
+  tooltip.innerHTML = `<span>AUTEUR DU COMMIT</span><strong>${escapeHtml(commit.author || 'Auteur inconnu')}</strong>${commit.email ? `<small>${escapeHtml(commit.email)}</small>` : ''}${commitDate ? `<time>${escapeHtml(commitDate)}</time>` : ''}<p><b>${escapeHtml(commit.shortHash)}</b> ${escapeHtml(commit.subject)}</p>`;
+  document.body.append(tooltip);
+  positionGraphNodeTooltip(tooltip, event);
+}
+
+function bindGraphNodeTooltips() {
+  $$('[data-commit-node]').forEach((node) => {
+    const commit = state.snapshot.commits.find((candidate) => candidate.hash === node.dataset.commitNode);
+    if (!commit) return;
+    node.addEventListener('pointerenter', (event) => showGraphNodeTooltip(commit, event));
+    node.addEventListener('pointermove', (event) => {
+      const tooltip = $('#graph-node-tooltip');
+      if (tooltip) positionGraphNodeTooltip(tooltip, event);
+    });
+    node.addEventListener('pointerleave', hideGraphNodeTooltip);
+    node.addEventListener('pointercancel', hideGraphNodeTooltip);
+  });
 }
 
 function renderStashGraphRow(stash, row, stashLane, laneCount, graphWidth) {
@@ -1285,6 +1325,7 @@ function showCommitResults(title, commits) {
 }
 
 function renderCommits() {
+  hideGraphNodeTooltip();
   ensureHistoryStructure();
   bindHistorySearch();
   const commits = visibleGraphCommits();
@@ -1341,6 +1382,7 @@ function renderCommits() {
     </button>`);
   });
   $('#commits').innerHTML = rows.join('');
+  bindGraphNodeTooltips();
   $$('[data-stash-ref]').forEach((row) => row.addEventListener('click', () => selectStash(row.dataset.stashRef)));
   $$('[data-stash-ref]').forEach((row) => row.addEventListener('contextmenu', (event) => {
     event.preventDefault();

@@ -262,6 +262,8 @@ button { cursor: pointer; }
 .branch-label-group rect { fill-opacity: .16; stroke-width: 1; }
 .commit-node-halo { fill: #0e1217; stroke: rgba(255,255,255,.2); stroke-width: 1; }
 .commit-row:hover .commit-node-halo, .commit-row.selected .commit-node-halo { fill: #1a222b; }
+.commit-node-hit-area { fill: transparent; pointer-events: all; }
+.graph-node-tooltip { position: fixed; z-index: 40; width: max-content; max-width: min(330px, calc(100vw - 16px)); padding: 9px 11px; pointer-events: none; border: 1px solid #46515d; border-radius: 4px; color: #dce5ee; background: #20262f; box-shadow: 0 8px 24px rgba(0,0,0,.42); font-size: 11px; }.graph-node-tooltip > span { display: block; margin-bottom: 4px; color: #7f8c99; font-size: 8px; font-weight: 700; letter-spacing: .12em; }.graph-node-tooltip > strong { display: block; color: #f0f4f8; font-size: 12px; }.graph-node-tooltip > small, .graph-node-tooltip > time { display: block; margin-top: 2px; color: #9daab6; }.graph-node-tooltip > time { color: #7f8c99; font-size: 10px; }.graph-node-tooltip > p { max-width: 300px; margin: 7px 0 0; overflow: hidden; color: #bec9d3; text-overflow: ellipsis; white-space: nowrap; }.graph-node-tooltip > p b { margin-right: 5px; color: #4f8cff; font-family: "Nimbus Mono", monospace; }
 .commit-main { min-width: 0; padding-right: 10px; }
 .commit-subject { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; font-weight: 700; }
 .commit-meta { display: block; margin-top: 4px; color: var(--muted); font: 9px "Nimbus Mono", monospace; }
