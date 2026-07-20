@@ -1,0 +1,4 @@
+Notes de la branche cible
+
+- Conserver la présentation Forkline.
+- Valider la résolution avec la version A.

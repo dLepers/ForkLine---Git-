@@ -132,6 +132,21 @@ test('discards, stages and unstages a hunk through git apply stdin', async () =>
   assert.equal(status.files[0].workingTree, 'M');
 });
 
+test('reports every untracked file inside an untracked directory', async () => {
+  const settings = path.join(repository, '.settings');
+  await fs.mkdir(settings);
+  await fs.writeFile(path.join(settings, 'one.xml'), '<one/>\n');
+  await fs.writeFile(path.join(settings, 'two.xml'), '<two/>\n');
+
+  const status = await git.status();
+
+  assert.deepEqual(status.files.map((file) => file.path), ['.settings/one.xml', '.settings/two.xml']);
+  assert.equal(status.files.every((file) => file.untracked), true);
+
+  await fs.rm(settings, { recursive: true });
+  assert.equal((await git.status()).files.length, 0);
+});
+
 test('creates a branch and commits staged content', async () => {
   await git.createBranch('feature/test');
   await fs.writeFile(path.join(repository, 'feature.txt'), 'Feature\n');
@@ -589,7 +604,13 @@ test('reports merge conflicts instead of hiding the repository state', async () 
   assert.equal(versions.ours, '# Main\n');
   assert.equal(versions.theirs, '# Feature\n');
   assert.match(versions.result, /<<<<<<< HEAD/);
-  assert.deepEqual(await git.operationState(), { type: 'merge', label: 'Fusion en cours' });
+  const operation = await git.operationState();
+  assert.equal(operation.type, 'merge');
+  assert.equal(operation.label, 'Fusion en cours');
+  assert.equal(operation.source, 'feature/conflict');
+  assert.equal(operation.target, 'main');
+  assert.match(operation.defaultMessage, /Merge branch 'feature\/conflict'/);
+  assert.deepEqual(operation.conflictPaths, ['README.md']);
 
   await git.abortOperation('merge');
   assert.equal(await git.operationState(), null);
@@ -597,6 +618,12 @@ test('reports merge conflicts instead of hiding the repository state', async () 
 
   const secondAttempt = await git.mergeBranch('feature/conflict');
   assert.equal(secondAttempt.conflicted, true);
+  await assert.rejects(() => git.continueOperation('merge'), /Résolvez tous les fichiers/);
+  await git.resolveAllConflicts();
+  assert.equal((await git.status()).files.some((file) => file.conflicted), false);
+  await git.abortOperation('merge');
+
+  assert.equal((await git.mergeBranch('feature/conflict')).conflicted, true);
   await git.resolveConflict('README.md', 'ours');
   assert.equal(await fs.readFile(path.join(repository, 'README.md'), 'utf8'), '# Main\n');
   assert.equal((await git.status()).files.some((file) => file.conflicted), false);
@@ -620,7 +647,8 @@ test('writes and stages a custom three-way conflict resolution', async () => {
   await git.resolveConflictContent('README.md', '# Combined result\n');
   assert.equal((await git.status()).files.some((file) => file.conflicted), false);
   assert.equal(await fs.readFile(path.join(repository, 'README.md'), 'utf8'), '# Combined result\n');
-  assert.equal((await git.continueOperation('merge')).conflicted, false);
+  assert.equal((await git.continueOperation('merge', { message: 'Fusion du scénario de conflit' })).conflicted, false);
+  assert.equal((await command(['log', '-1', '--format=%s'])).stdout.trim(), 'Fusion du scénario de conflit');
 });
 
 test('validates reset modes and refuses to delete the active branch', async () => {

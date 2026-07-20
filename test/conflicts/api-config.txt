@@ -1,0 +1,4 @@
+Version de la branche cible
+
+endpoint=https://cible.example.test
+timeout=30

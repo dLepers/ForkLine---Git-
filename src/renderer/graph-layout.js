@@ -98,6 +98,14 @@
     const branches = options.branches || [];
     const children = new Map();
     const assignedLanes = new Map();
+    const commitsByHash = new Map(commits.map((commit) => [commit.hash, commit]));
+    const activeFirstParentChain = new Set();
+
+    let activeHash = options.headHash;
+    while (activeHash && !activeFirstParentChain.has(activeHash)) {
+      activeFirstParentChain.add(activeHash);
+      activeHash = commitsByHash.get(activeHash)?.parents?.[0] || null;
+    }
 
     commits.forEach((commit) => {
       commit.parents.forEach((parent) => {
@@ -148,9 +156,20 @@
       lanes[lane] = null;
       laneColors[lane] = null;
       const connections = [];
+      const joins = [];
 
       commit.parents.forEach((parent, parentIndex) => {
         let target = lanes.indexOf(parent);
+        if (parentIndex === 0 && lane === 0 && activeFirstParentChain.has(commit.hash) && target > 0) {
+          const joiningColor = laneColors[target];
+          lanes[target] = null;
+          laneColors[target] = null;
+          lanes[lane] = parent;
+          laneColors[lane] = laneColor;
+          connections.push({ from: lane, to: lane, parentIndex, fromColor: laneColor, toColor: laneColor });
+          joins.push({ from: target, to: lane, hash: parent, color: joiningColor });
+          return;
+        }
         if (target === -1) {
           if (parentIndex === 0) {
             // Le parent principal continue EXACTEMENT dans la même colonne :
@@ -230,6 +249,7 @@
         transitions,
         transitionColors,
         connections,
+        joins,
         anchorHash: commit.hash,
       });
     }

@@ -1,0 +1,4 @@
+Configuration de la branche cible
+
+nouveau_graphe=actif
+resolution_automatique=desactivee
