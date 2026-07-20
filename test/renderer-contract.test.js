@@ -164,6 +164,18 @@ test('the Output panel can be resized with pointer and keyboard controls', () =>
   assert.match(renderer, /bindConflictOutputResizer\(\)/);
 });
 
+test('worktree inspector separates staged and unstaged file groups', () => {
+  const styles = read('src/renderer/styles.css');
+  assert.match(renderer, /worktree-file-group worktree-file-group-unstaged[\s\S]*id="worktree-unstaged-files"/);
+  assert.match(renderer, /worktree-file-group worktree-file-group-staged[\s\S]*id="worktree-staged-files"/);
+  assert.match(styles, /\.worktree-file-group \{[^}]*border-block:[^}]*background:/);
+  assert.match(styles, /\.worktree-file-group \+ \.worktree-file-group \{[^}]*margin-top:/);
+  assert.match(styles, /\.worktree-file-group-unstaged \{[^}]*background: rgba\(209,162,76,/);
+  assert.match(styles, /\.worktree-file-group-staged \{[^}]*background: rgba\(85,188,130,/);
+  assert.match(styles, /\.worktree-file-group-unstaged h4 \{[^}]*border-left-color:/);
+  assert.match(styles, /\.worktree-file-group-staged h4 \{[^}]*border-left-color:/);
+});
+
 test('commit checkout distinguishes branch switching from detached HEAD', () => {
   assert.match(renderer, /const branchCheckoutLabel =[\s\S]*Basculer sur une branche pointant ici/);
   assert.match(renderer, /id: 'checkout-branch'.*label: branchCheckoutLabel/);

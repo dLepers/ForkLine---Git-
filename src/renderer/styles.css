@@ -321,8 +321,15 @@ textarea:focus, dialog input:focus { border-color: var(--accent); box-shadow: 0 
 .worktree-header { padding: 20px 18px 13px; display: flex; align-items: end; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,.08); }
 .worktree-header h3 { margin: 5px 0 0; color: var(--paper); font-size: 16px; }
 .worktree-files { padding: 8px 0 16px; }
-.worktree-files h4 { margin: 12px 18px 5px; color: #8d958c; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
-.worktree-files h4 span { color: #5f6961; }
+.worktree-file-group { border-block: 1px solid rgba(255,255,255,.09); background: rgba(0,0,0,.08); }
+.worktree-file-group + .worktree-file-group { margin-top: 12px; }
+.worktree-file-group h4 { min-height: 35px; margin: 0; padding: 8px 18px 8px 22px; display: flex; align-items: center; justify-content: space-between; border-left: 3px solid #838a82; color: #aeb4ac; background: rgba(255,255,255,.035); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.worktree-file-group h4 strong { min-width: 22px; padding: 2px 6px; border-radius: 9px; color: #c8cdc6; background: rgba(255,255,255,.08); font-size: 10px; text-align: center; }
+.worktree-file-group-unstaged { background: rgba(209,162,76,.055); }
+.worktree-file-group-staged { background: rgba(85,188,130,.05); }
+.worktree-file-group-unstaged h4 { border-left-color: #d1a24c; }
+.worktree-file-group-staged h4 { border-left-color: #55bc82; }
+.worktree-file-group .file-list:empty::after { min-height: 40px; padding-left: 22px; }
 .worktree-detail .file-row { color: #c4c9c1; background: transparent; grid-template-columns: 22px minmax(0,1fr) auto; }
 .worktree-detail .file-row:hover, .worktree-detail .file-row.selected { background: rgba(255,255,255,.06); }
 .worktree-commit { padding: 15px 18px 20px; border-top: 1px solid rgba(255,255,255,.08); }

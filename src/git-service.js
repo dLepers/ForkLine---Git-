@@ -1038,7 +1038,82 @@ class GitService {
 
   async mergeBranch(name) {
     await this.validateBranchName(name, true);
-    return this.runConflictAware(['merge', '--no-edit', name]);
+    const status = await this.status();
+    if (status.files.some((file) => file.conflicted)) {
+      throw new GitError('Des conflits doivent être résolus avant de lancer une nouvelle fusion.');
+    }
+
+    const pendingAutoStash = await this.pendingMergeAutoStash();
+    if (pendingAutoStash) {
+      throw new GitError('Un autostash de fusion précédent doit être restauré avant de lancer une nouvelle fusion.');
+    }
+
+    let autoStashHash = null;
+    if (status.files.length) {
+      const activeBranch = await this.head();
+      await this.createStash({
+        message: `Auto stash before merge of "${activeBranch}" and "${name}"`,
+        includeUntracked: true,
+      });
+      autoStashHash = (await this.run(['rev-parse', 'refs/stash'])).trim();
+      await this.run(['config', '--local', 'forkline.autoStash.merge', autoStashHash]);
+    }
+
+    try {
+      const merged = await this.runConflictAware(['merge', '--no-edit', name]);
+      if (merged.conflicted || !autoStashHash) return merged;
+      return this.restoreMergeAutoStash(autoStashHash, merged.output);
+    } catch (mergeError) {
+      if (!autoStashHash) throw mergeError;
+      try {
+        await this.restoreMergeAutoStash(autoStashHash);
+      } catch (restoreError) {
+        throw new GitError(
+          mergeError.message,
+          `${mergeError.details || ''}\nLa fusion a échoué et l’autostash n’a pas pu être restauré. Il reste disponible dans les stashes.\n${restoreError.details || restoreError.message}`.trim(),
+        );
+      }
+      throw mergeError;
+    }
+  }
+
+  async pendingMergeAutoStash() {
+    return this.run(['config', '--local', '--get', 'forkline.autoStash.merge']).then((value) => value.trim()).catch(() => '');
+  }
+
+  async clearMergeAutoStash() {
+    await this.run(['config', '--local', '--unset-all', 'forkline.autoStash.merge']).catch(() => '');
+  }
+
+  async restoreMergeAutoStash(hash, operationOutput = '') {
+    const stash = (await this.stashes()).find((entry) => entry.hash === hash);
+    if (!stash) {
+      await this.clearMergeAutoStash();
+      throw new GitError('L’autostash de fusion est introuvable.');
+    }
+
+    const stagedPaths = (await this.run(['diff', '--name-only', '-z', `${hash}^1`, `${hash}^2`])).split('\0').filter(Boolean);
+    const changedByOperation = new Set((await this.run(['diff', '--name-only', '-z', `${hash}^1`, 'HEAD'])).split('\0').filter(Boolean));
+    let restored;
+    try {
+      restored = await this.runConflictAware(['stash', 'apply', stash.ref]);
+      const conflicts = new Set((await this.status()).files.filter((file) => file.conflicted).map((file) => file.path));
+      const indexPaths = stagedPaths.filter((file) => !conflicts.has(file) && !changedByOperation.has(file));
+      if (indexPaths.length) await this.run(['restore', `--source=${hash}^2`, '--staged', '--', ...indexPaths]);
+      if (!restored.conflicted) await this.run(['stash', 'drop', stash.ref]);
+    } catch (error) {
+      throw new GitError(
+        'La fusion est terminée, mais les modifications locales n’ont pas pu être restaurées automatiquement.',
+        `L’autostash est conservé sous ${stash.ref}.\n${error.details || error.message}`,
+      );
+    }
+    await this.clearMergeAutoStash();
+    return {
+      ...restored,
+      output: [operationOutput, restored.output].filter(Boolean).join('\n'),
+      autoStashRestored: !restored.conflicted,
+      autoStashIndexPartiallyRestored: stagedPaths.some((file) => changedByOperation.has(file)),
+    };
   }
 
   async rebaseBranch(name) {
@@ -1379,9 +1454,12 @@ class GitService {
       'cherry-pick': ['cherry-pick', '--continue'],
       revert: ['revert', '--continue'],
     };
-    return this.runConflictAware(commands[type], {
+    const autoStashHash = type === 'merge' ? await this.pendingMergeAutoStash() : '';
+    const continued = await this.runConflictAware(commands[type], {
       env: { ...process.env, LC_ALL: 'C.UTF-8', GIT_EDITOR: 'true', GIT_SEQUENCE_EDITOR: 'true' },
     });
+    if (continued.conflicted || !autoStashHash) return continued;
+    return this.restoreMergeAutoStash(autoStashHash, continued.output);
   }
 
   async abortOperation(type) {
@@ -1394,7 +1472,10 @@ class GitService {
       'cherry-pick': ['cherry-pick', '--abort'],
       revert: ['revert', '--abort'],
     };
-    return this.run(commands[type]);
+    const autoStashHash = type === 'merge' ? await this.pendingMergeAutoStash() : '';
+    const output = await this.run(commands[type]);
+    if (!autoStashHash) return { output, conflicted: false, conflicts: [] };
+    return this.restoreMergeAutoStash(autoStashHash, output);
   }
 
   async runConflictAware(args, options = {}) {

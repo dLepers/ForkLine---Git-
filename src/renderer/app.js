@@ -1491,7 +1491,16 @@ function renderWorktreeInspector() {
   $('#worktree-detail').innerHTML = `
     ${operation ? `<section class="operation-banner"><div><p class="eyebrow">OPÉRATION GIT</p><strong>${escapeHtml(operation.label)}</strong><span>${operationHelp}</span></div><div><button class="button button-small danger" data-operation-action="abort">Abandonner…</button>${activeConflicts ? '<button class="button button-small button-primary" data-operation-action="open">Afficher les conflits</button>' : ''}</div></section>` : ''}
     <header class="worktree-header"><div><p class="eyebrow">TRAVAIL EN COURS</p><h3>${files.length} fichier${files.length > 1 ? 's' : ''} modifié${files.length > 1 ? 's' : ''}</h3></div><button class="text-button" data-worktree-action="stage-all">Tout ajouter</button></header>
-    <div class="worktree-files"><h4>Fichiers non indexés <span>${files.filter((file) => !file.staged).length}</span></h4><div id="worktree-unstaged-files" class="file-list"></div><h4>Fichiers indexés <span>${files.filter((file) => file.staged).length}</span></h4><div id="worktree-staged-files" class="file-list"></div></div>
+    <div class="worktree-files">
+      <section class="worktree-file-group worktree-file-group-unstaged">
+        <h4><span>Fichiers non indexés</span><strong>${files.filter((file) => !file.staged).length}</strong></h4>
+        <div id="worktree-unstaged-files" class="file-list"></div>
+      </section>
+      <section class="worktree-file-group worktree-file-group-staged">
+        <h4><span>Fichiers indexés</span><strong>${files.filter((file) => file.staged).length}</strong></h4>
+        <div id="worktree-staged-files" class="file-list"></div>
+      </section>
+    </div>
     <div class="worktree-commit"><label for="worktree-commit-message">RÉSUMÉ DU COMMIT</label><textarea id="worktree-commit-message" rows="4" placeholder="${escapeHtml(operation?.defaultMessage?.split('\n')[0] || 'Décrire clairement ce qui change…')}"></textarea><label class="commit-option"><input id="worktree-commit-amend" type="checkbox"${operation ? ' disabled' : ''}><span>Modifier le dernier commit</span></label><label class="commit-option"><input id="worktree-commit-sign" type="checkbox"${state.snapshot.commitPreferences?.gpgSign ? ' checked' : ''}><span>Signer ce commit</span></label><button class="button button-primary" data-worktree-action="commit">${operation && !activeConflicts ? (operation.type === 'merge' ? 'Terminer la fusion' : 'Poursuivre l’opération') : 'Créer le commit'}</button></div>`;
   renderFileList('#worktree-staged-files', files.filter((file) => file.staged), true);
   renderFileList('#worktree-unstaged-files', files.filter((file) => file.workingTree !== ' ' || file.untracked), false);

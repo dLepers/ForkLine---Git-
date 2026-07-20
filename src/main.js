@@ -474,7 +474,10 @@ app.whenReady().then(() => {
     const { output, snapshot } = await repositoryWatcher.mutate(() => git.continueOperation(type, options));
     return { ...output, snapshot };
   });
-  handle('repository:abort-operation', async (type) => (await repositoryWatcher.mutate(() => git.abortOperation(type))).snapshot);
+  handle('repository:abort-operation', async (type) => {
+    const { output, snapshot } = await repositoryWatcher.mutate(() => git.abortOperation(type));
+    return { ...output, snapshot };
+  });
   handle('repository:fetch', async () => repositoryWatcher.mutate(() => git.fetch()));
   handle('repository:pull', async (options) => {
     const { output, snapshot } = await repositoryWatcher.mutate(() => git.pull(options));

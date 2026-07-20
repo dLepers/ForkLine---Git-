@@ -584,6 +584,85 @@ test('rejects an unknown pull strategy', async () => {
   await assert.rejects(() => git.pull({ strategy: 'unsafe' }), /Stratégie de pull invalide/);
 });
 
+test('auto-stashes local changes during a merge and restores their staging state', async () => {
+  await git.createBranch('feature/autostash');
+  await fs.writeFile(path.join(repository, 'feature.txt'), 'Feature content\n');
+  await git.stage(['feature.txt']);
+  await git.commit('Feature for autostash');
+  await git.switchBranch('main');
+
+  await fs.appendFile(path.join(repository, 'README.md'), 'Local unstaged change\n');
+  await fs.writeFile(path.join(repository, 'staged-local.txt'), 'Local staged change\n');
+  await git.stage(['staged-local.txt']);
+  await fs.writeFile(path.join(repository, 'untracked-local.txt'), 'Local untracked change\n');
+
+  const result = await git.mergeBranch('feature/autostash');
+
+  assert.equal(result.conflicted, false);
+  assert.match(await fs.readFile(path.join(repository, 'README.md'), 'utf8'), /Local unstaged change/);
+  assert.equal(await fs.readFile(path.join(repository, 'staged-local.txt'), 'utf8'), 'Local staged change\n');
+  assert.equal(await fs.readFile(path.join(repository, 'untracked-local.txt'), 'utf8'), 'Local untracked change\n');
+  const status = await git.status();
+  assert.equal(status.files.find((file) => file.path === 'README.md')?.staged, false);
+  assert.equal(status.files.find((file) => file.path === 'staged-local.txt')?.staged, true);
+  assert.equal(status.files.find((file) => file.path === 'untracked-local.txt')?.untracked, true);
+  assert.equal((await git.stashes()).length, 0);
+});
+
+test('keeps the merge autostash safe through conflict abort and continue', async () => {
+  await fs.writeFile(path.join(repository, 'local.txt'), 'Committed base\n');
+  await git.stage(['local.txt']);
+  await git.commit('Add local base');
+  await git.createBranch('feature/autostash-conflict');
+  await fs.writeFile(path.join(repository, 'README.md'), '# Feature conflict\n');
+  await git.stage(['README.md']);
+  await git.commit('Feature conflict for autostash');
+  await git.switchBranch('main');
+  await fs.writeFile(path.join(repository, 'README.md'), '# Main conflict\n');
+  await git.stage(['README.md']);
+  await git.commit('Main conflict for autostash');
+  await fs.writeFile(path.join(repository, 'local.txt'), 'Pending local work\n');
+  await git.stage(['local.txt']);
+
+  const conflicted = await git.mergeBranch('feature/autostash-conflict');
+  assert.equal(conflicted.conflicted, true);
+  assert.equal(await fs.readFile(path.join(repository, 'local.txt'), 'utf8'), 'Committed base\n');
+  assert.match((await command(['config', '--local', '--get', 'forkline.autoStash.merge'])).stdout, /^[0-9a-f]{40}/);
+
+  await git.abortOperation('merge');
+  assert.equal(await fs.readFile(path.join(repository, 'local.txt'), 'utf8'), 'Pending local work\n');
+  assert.equal((await git.status()).files.find((file) => file.path === 'local.txt')?.staged, true);
+  await assert.rejects(() => command(['config', '--local', '--get', 'forkline.autoStash.merge']));
+
+  const secondAttempt = await git.mergeBranch('feature/autostash-conflict');
+  assert.equal(secondAttempt.conflicted, true);
+  await git.resolveConflict('README.md', 'ours');
+  const continued = await git.continueOperation('merge');
+  assert.equal(continued.conflicted, false);
+  assert.equal(await fs.readFile(path.join(repository, 'local.txt'), 'utf8'), 'Pending local work\n');
+  assert.equal((await git.status()).files.find((file) => file.path === 'local.txt')?.staged, true);
+  assert.equal((await git.stashes()).length, 0);
+});
+
+test('restores non-overlapping staged files when the autostash itself conflicts', async () => {
+  await git.createBranch('feature/autostash-restore-conflict');
+  await fs.writeFile(path.join(repository, 'README.md'), '# Feature version\n');
+  await git.stage(['README.md']);
+  await git.commit('Feature changes the pending file');
+  await git.switchBranch('main');
+  await fs.writeFile(path.join(repository, 'README.md'), '# Local pending version\n');
+  await fs.writeFile(path.join(repository, 'staged-safe.txt'), 'Keep this staged\n');
+  await git.stage(['staged-safe.txt']);
+
+  const result = await git.mergeBranch('feature/autostash-restore-conflict');
+
+  assert.equal(result.conflicted, true);
+  assert.deepEqual(result.conflicts, ['README.md']);
+  assert.equal((await git.status()).files.find((file) => file.path === 'staged-safe.txt')?.staged, true);
+  assert.equal((await git.stashes()).length, 1);
+  assert.equal(await git.pendingMergeAutoStash(), '');
+});
+
 test('reports merge conflicts instead of hiding the repository state', async () => {
   await git.createBranch('feature/conflict');
   await fs.writeFile(path.join(repository, 'README.md'), '# Feature\n');
