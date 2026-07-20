@@ -55,6 +55,15 @@ test('commit graph nodes expose a GitKraken-style author tooltip', () => {
   assert.doesNotMatch(styles, /\.commit-node-target\s*\{[^}]*cursor:\s*help/);
 });
 
+test('double-clicking a local graph branch checks it out without selecting the commit row', () => {
+  assert.match(renderer, /function bindGraphBranchInteractions\(\)/);
+  assert.match(renderer, /label\.addEventListener\('click', \(event\) => \{[\s\S]*event\.stopPropagation\(\)/);
+  assert.match(renderer, /label\.addEventListener\('dblclick', \(event\) => \{[\s\S]*switchBranch\(label\.dataset\.graphBranch\)/);
+  assert.match(renderer, /label\.addEventListener\('contextmenu'/);
+  assert.match(renderer, /bindGraphBranchInteractions\(\);/);
+  assert.match(styles, /\.branch-label\[data-graph-branch\][^{]*\{[^}]*cursor:\s*pointer/);
+});
+
 test('merge conflicts open a dedicated GitKraken-style inspector with complete actions', () => {
   assert.match(html, /id="conflict-detail"/);
   assert.match(renderer, /activeConflicts && !options\.preserveInspector[^\n]*showInspector\('#conflict-detail'\)/);
@@ -68,10 +77,21 @@ test('merge conflicts open a dedicated GitKraken-style inspector with complete a
 });
 
 test('conflicted operations keep the graph topology visible without a WIP badge', () => {
-  assert.match(renderer, /workingTreeLabelWidth = graph\.workingTreeNode && !activeConflicts \? 75 : 0/);
-  assert.match(renderer, /renderWorkingTreeRow\(graph\.workingTreeNode, displayLaneCount, graphWidth, state\.snapshot\.status\.files\.length, operation\)/);
+  assert.match(renderer, /renderWorkingTreeRow\(graph\.workingTreeNode, displayLaneCount, graphWidth, operation\)/);
   assert.match(renderer, /class="conflict-working-tree-node"/);
   assert.match(renderer, /Des conflits ont été détectés pendant la fusion dans/);
+});
+
+test('the working tree row displays a GitKraken-style WIP summary by change type', () => {
+  assert.match(renderer, /function workingTreeChangeCounts\(files\)/);
+  assert.match(renderer, /file\.untracked \|\| file\.index === 'A' \|\| file\.workingTree === 'A'/);
+  assert.match(renderer, /file\.index === 'D' \|\| file\.workingTree === 'D'/);
+  assert.match(renderer, /class="working-tree-wip">\/\/ WIP/);
+  assert.match(renderer, /class="wip-stat modified"/);
+  assert.match(renderer, /class="wip-stat added"/);
+  assert.match(renderer, /class="wip-stat deleted"/);
+  assert.match(renderer, /renderWorkingTreeSummary\(state\.snapshot\.status\.files\)/);
+  assert.doesNotMatch(renderer, /working-tree-badge-text/);
 });
 
 test('resolved conflicts leave conflict mode while keeping the Git operation available', () => {

@@ -243,9 +243,7 @@ button { cursor: pointer; }
 .working-tree-graph { align-self: stretch; overflow: visible; }
 .working-tree-graph path { fill: none; stroke: #24b4c2; stroke-width: 2.5; stroke-dasharray: 2 5; stroke-linecap: round; }
 .working-tree-graph circle { fill: var(--paper); stroke: #24b4c2; stroke-width: 2; stroke-dasharray: 2 3; }
-.working-tree-link { stroke-width: 2.5 !important; }
-.working-tree-badge { fill: rgba(36,180,194,.15); stroke: #247d88; stroke-width: 1; }
-.working-tree-badge-text { fill: #7cd4dc; font: 700 8px "Nimbus Sans", sans-serif; letter-spacing: .03em; }
+.working-tree-summary { min-width: 0; display: flex; align-items: center; gap: 14px; }.working-tree-wip { min-width: 98px; padding: 4px 10px; overflow: hidden; border: 1px solid rgba(79,140,255,.16); border-radius: 3px; color: #8f9eae; background: rgba(79,140,255,.08); font: 12px "Nimbus Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }.working-tree-stats { display: inline-flex; align-items: center; gap: 11px; }.wip-stat { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; }.wip-stat b { font-size: 14px; line-height: 1; }.wip-stat.modified { color: #d8ae55; }.wip-stat.added { color: #58bd78; }.wip-stat.deleted { color: #d87979; }
 .conflict-working-tree-link { fill: none; stroke: #24b4c2; stroke-width: 2.5; stroke-dasharray: 2 5; }
 .conflict-working-tree-node { fill: #0e1217; stroke: #24b4c2; stroke-width: 2; stroke-dasharray: 2 2; }
 .working-tree-label { min-width: 0; display: flex; align-items: baseline; gap: 9px; padding-right: 10px; }
@@ -257,7 +255,7 @@ button { cursor: pointer; }
 .branch-labels text { letter-spacing: .01em; }
 .branch-labels rect { fill-opacity: .12; stroke-width: 1.2; }
 .branch-label-group { pointer-events: none; }
-.branch-label[data-graph-branch] { pointer-events: all; cursor: context-menu; }
+.branch-label[data-graph-branch] { pointer-events: all; cursor: pointer; }
 .branch-label-group text { letter-spacing: .01em; }
 .branch-label-group rect { fill-opacity: .16; stroke-width: 1; }
 .commit-node-halo { fill: #0e1217; stroke: rgba(255,255,255,.2); stroke-width: 1; }

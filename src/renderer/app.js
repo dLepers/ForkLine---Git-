@@ -1165,6 +1165,25 @@ function bindGraphNodeTooltips() {
   });
 }
 
+function bindGraphBranchInteractions() {
+  $$('[data-graph-branch]').forEach((label) => {
+    label.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    label.addEventListener('dblclick', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      switchBranch(label.dataset.graphBranch);
+    });
+    label.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      showBranchContextMenu(label.dataset.graphBranch, event.clientX, event.clientY);
+    });
+  });
+}
+
 function renderStashGraphRow(stash, row, stashLane, laneCount, graphWidth) {
   const spacing = 16;
   const laneWidth = graphLaneWidth(laneCount);
@@ -1194,7 +1213,7 @@ function renderStashGraphRow(stash, row, stashLane, laneCount, graphWidth) {
   </svg>`;
 }
 
-function renderWorkingTreeRow(node, laneCount, graphWidth, changeCount, operation = null) {
+function renderWorkingTreeRow(node, laneCount, graphWidth, operation = null) {
   const spacing = 16;
   const width = graphWidth || graphLaneWidth(laneCount);
   const laneWidth = graphLaneWidth(laneCount);
@@ -1204,12 +1223,23 @@ function renderWorkingTreeRow(node, laneCount, graphWidth, changeCount, operatio
     <circle class="conflict-working-tree-node" cx="${centerX}" cy="13" r="6.5"/>
   </svg>`;
   return `<svg class="working-tree-graph" width="${width}" height="44" viewBox="0 0 ${width} 44" aria-hidden="true">
-    <path class="working-tree-link" d="M 79 13 H ${centerX}"/>
-    <rect class="working-tree-badge" x="4" y="4" width="75" height="18" rx="3"/>
-    <text class="working-tree-badge-text" x="12" y="17">WIP · ${changeCount}</text>
     <path d="M ${centerX} 13 L ${centerX} 44"/>
     <circle cx="${centerX}" cy="13" r="6.5"/>
   </svg>`;
+}
+
+function workingTreeChangeCounts(files) {
+  return files.reduce((counts, file) => {
+    if (file.untracked || file.index === 'A' || file.workingTree === 'A') counts.added += 1;
+    else if (file.index === 'D' || file.workingTree === 'D') counts.deleted += 1;
+    else counts.modified += 1;
+    return counts;
+  }, { modified: 0, added: 0, deleted: 0 });
+}
+
+function renderWorkingTreeSummary(files) {
+  const counts = workingTreeChangeCounts(files);
+  return `<span class="working-tree-summary"><span class="working-tree-wip">// WIP</span><span class="working-tree-stats">${counts.modified ? `<span class="wip-stat modified" title="${counts.modified} fichier${counts.modified > 1 ? 's' : ''} modifié${counts.modified > 1 ? 's' : ''}"><b>✎</b>${counts.modified}</span>` : ''}${counts.added ? `<span class="wip-stat added" title="${counts.added} fichier${counts.added > 1 ? 's' : ''} ajouté${counts.added > 1 ? 's' : ''}"><b>+</b>${counts.added}</span>` : ''}${counts.deleted ? `<span class="wip-stat deleted" title="${counts.deleted} fichier${counts.deleted > 1 ? 's' : ''} supprimé${counts.deleted > 1 ? 's' : ''}"><b>−</b>${counts.deleted}</span>` : ''}</span></span>`;
 }
 
 function graphLabelWidth(label) {
@@ -1344,8 +1374,7 @@ function renderCommits() {
     return Math.max(width, refsWidth);
   }, 0);
   const activeConflicts = hasActiveConflicts();
-  const workingTreeLabelWidth = graph.workingTreeNode && !activeConflicts ? 75 : 0;
-  const labelArea = Math.max(labelWidth, workingTreeLabelWidth);
+  const labelArea = labelWidth;
   const graphWidth = Math.max(46, graphLaneWidth(displayLaneCount) + (labelArea ? labelArea + 2 : 0));
   $('#commits').style.setProperty('--graph-width', `${graphWidth}px`);
   $('.history-head').style.setProperty('--graph-width', `${graphWidth}px`);
@@ -1357,8 +1386,8 @@ function renderCommits() {
         ? `Des conflits ont été détectés pendant la fusion dans ${operation.target || state.snapshot.head}`
         : operation ? `${operation.label} · des conflits doivent être résolus` : '';
       rows.push(`<button class="working-tree-row${operation ? ' operation-working-tree-row' : ''}" type="button" title="${operation ? 'Afficher les conflits' : 'Afficher les modifications locales'}">
-        ${renderWorkingTreeRow(graph.workingTreeNode, displayLaneCount, graphWidth, state.snapshot.status.files.length, operation)}
-        <span class="operation-graph-message">${operation ? `<b>⚠</b> ${escapeHtml(operationMessage)}` : ''}</span>
+        ${renderWorkingTreeRow(graph.workingTreeNode, displayLaneCount, graphWidth, operation)}
+        ${operation ? `<span class="operation-graph-message"><b>⚠</b> ${escapeHtml(operationMessage)}</span>` : renderWorkingTreeSummary(state.snapshot.status.files)}
         <span></span><span></span>
       </button>`);
     }
@@ -1383,6 +1412,7 @@ function renderCommits() {
   });
   $('#commits').innerHTML = rows.join('');
   bindGraphNodeTooltips();
+  bindGraphBranchInteractions();
   $$('[data-stash-ref]').forEach((row) => row.addEventListener('click', () => selectStash(row.dataset.stashRef)));
   $$('[data-stash-ref]').forEach((row) => row.addEventListener('contextmenu', (event) => {
     event.preventDefault();
@@ -1403,11 +1433,6 @@ function renderCommits() {
     event.stopPropagation();
     const commit = state.snapshot.commits.find((item) => item.hash === row.dataset.hash);
     if (commit) showCommitContextMenu(commit, event.clientX, event.clientY);
-  }));
-  $$('[data-graph-branch]').forEach((label) => label.addEventListener('contextmenu', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    showBranchContextMenu(label.dataset.graphBranch, event.clientX, event.clientY);
   }));
   $$('.working-tree-row').forEach((row) => row.addEventListener('click', () => showInspector(hasActiveConflicts() ? '#conflict-detail' : '#worktree-detail')));
   renderComparisonBar();
