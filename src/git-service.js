@@ -1156,6 +1156,23 @@ class GitService {
     return this.run(['reset', `--${mode}`, revision]);
   }
 
+  async deleteCommit(revision) {
+    await this.validateRevision(revision);
+    if ((await this.status()).files.length) throw new GitError('La copie de travail doit être propre avant de supprimer un commit.');
+    await this.run(['symbolic-ref', '--quiet', '--short', 'HEAD']).catch(() => { throw new GitError('Activez une branche avant de supprimer un commit.'); });
+    const hash = (await this.run(['rev-parse', '--verify', `${revision}^{commit}`])).trim();
+    const parent = (await this.run(['rev-parse', '--verify', `${hash}^`]).catch(() => { throw new GitError('Le commit initial ne peut pas être supprimé.'); })).trim();
+    const isAncestor = await this.run(['merge-base', '--is-ancestor', hash, 'HEAD']).then(() => true).catch(() => false);
+    if (!isAncestor) throw new GitError('Le commit à supprimer doit appartenir à la branche active.');
+    const headHash = await this.headHash();
+    if (hash === headHash) return this.run(['reset', '--hard', parent]);
+    const plan = await this.interactiveRebasePlan(parent);
+    const target = plan.find((entry) => entry.hash === hash);
+    if (!target) throw new GitError('Le commit à supprimer est introuvable dans l’historique linéaire actif.');
+    target.action = 'drop';
+    return this.interactiveRebase(parent, plan);
+  }
+
   async renameBranch(oldName, newName) {
     await this.validateBranchName(oldName, true);
     const sourceName = oldName.trim();

@@ -501,6 +501,22 @@ test('searches commits and exposes file history, blame and revision comparison',
   assert.match(analysisData, /\+Historical line/);
 });
 
+test('deletes a selected non-head commit while preserving its descendants', async () => {
+  await fs.appendFile(path.join(repository, 'README.md'), 'Commit to delete\n');
+  await git.stage(['README.md']);
+  await git.commit('Temporary middle commit');
+  const target = (await git.snapshot()).headHash;
+  await fs.writeFile(path.join(repository, 'descendant.txt'), 'Descendant\n');
+  await git.stage(['descendant.txt']);
+  await git.commit('Keep descendant commit');
+
+  await git.deleteCommit(target);
+
+  const commits = await git.commits(10);
+  assert.equal(commits.some((commit) => commit.subject === 'Temporary middle commit'), false);
+  assert.equal(commits.some((commit) => commit.subject === 'Keep descendant commit'), true);
+});
+
 test('adds, renames, fetches and removes a remote', async () => {
   const remoteRepository = await fs.mkdtemp(path.join(os.tmpdir(), 'forkline-remote-'));
   try {
