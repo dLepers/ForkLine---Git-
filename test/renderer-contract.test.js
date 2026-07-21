@@ -202,10 +202,20 @@ test('contextual tag creation uses a shared validated dialog and selected revisi
 
 test('stash rows preserve every active graph lane', () => {
   const stashRenderer = renderer.match(/function renderStashGraphRow[\s\S]*?(?=\nfunction renderWorkingTreeRow)/)?.[0] || '';
-  assert.match(stashRenderer, /row\.before\.map/);
-  assert.match(stashRenderer, /row\.beforeColors\[lane\]/);
+  assert.match(stashRenderer, /topRow\.before\.map/);
+  assert.match(stashRenderer, /topRow\.beforeColors\[lane\]/);
   assert.match(stashRenderer, /stash-lane-continuation/);
-  assert.match(stashRenderer, /stash-upper-stem/);
+  assert.match(stashRenderer, /stash-route/);
+  assert.match(stashRenderer, /class="stash-node" data-stash-node=/);
+});
+
+test('stash rows sit below WIP and route back to their base commit', () => {
+  const commitRenderer = renderer.match(/function renderCommits\(\)[\s\S]*?(?=\nfunction toggleCommitComparison)/)?.[0] || '';
+  assert.match(commitRenderer, /baseIndex = commits\.findIndex\(\(commit\) => commit\.hash === stash\.baseHash\)/);
+  assert.match(commitRenderer, /data-stash-base-hash=/);
+  assert.ok(commitRenderer.indexOf('working-tree-row') < commitRenderer.indexOf('stashPlacements.forEach'));
+  assert.ok(commitRenderer.indexOf('stashPlacements.forEach') < commitRenderer.indexOf('commits.forEach'));
+  assert.match(renderer, /stash-base-connection/);
 });
 
 test('branch context actions follow the selected branch state and update graph visibility', () => {

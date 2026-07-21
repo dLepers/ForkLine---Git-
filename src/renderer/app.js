@@ -1068,7 +1068,7 @@ function graphIconMarkup(type, x, y, color) {
   return `<text class="sync-icon" x="${x + 1}" y="${y + 10}" fill="${color}" font-size="11" font-weight="800">${symbol}</text>`;
 }
 
-function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTreeNode, hasStashAbove = false) {
+function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTreeNode, stashPlacements = []) {
   const spacing = 16;
   const centerY = 22;
   const laneWidth = graphLaneWidth(laneCount);
@@ -1078,9 +1078,16 @@ function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTre
   const paths = [];
   const isStash = Boolean(commit.stashRole);
 
-  if (hasStashAbove) {
-    paths.push(`<path d="M ${x(row.lane)} 0 L ${x(row.lane)} ${centerY}" stroke="${graphColor(row.laneColor)}"/>`);
-  }
+  stashPlacements.filter((placement) => rowIndex <= placement.baseIndex).forEach((placement) => {
+    const stashX = x(placement.lane);
+    const stashColor = graphColor(placement.baseRow.laneColor);
+    if (rowIndex < placement.baseIndex) {
+      paths.push(`<path class="stash-route" d="M ${stashX} 0 V 44" stroke="${stashColor}"/>`);
+      return;
+    }
+    const baseX = x(row.lane);
+    paths.push(`<path class="stash-route stash-base-connection" d="M ${stashX} 0 V 8 C ${stashX} 15, ${baseX} 13, ${baseX} ${centerY}" stroke="${stashColor}"/>`);
+  });
 
   row.before.forEach((value, lane) => {
     if (value && !(row.startsHere && lane === row.lane)) {
@@ -1184,32 +1191,34 @@ function bindGraphBranchInteractions() {
   });
 }
 
-function renderStashGraphRow(stash, row, stashLane, laneCount, graphWidth) {
+function renderStashGraphRow(placement, topRow, stashPlacements, stashIndex, laneCount, graphWidth) {
+  const { stash, lane: stashLane, baseRow } = placement;
   const spacing = 16;
   const laneWidth = graphLaneWidth(laneCount);
   const width = graphWidth || laneWidth;
   const laneOffset = Math.max(0, width - laneWidth);
-  const baseLane = row.lane;
-  const baseX = laneOffset + 6 + baseLane * spacing;
   const centerX = laneOffset + 6 + stashLane * spacing;
   const centerY = 22;
-  const color = graphColor(row.laneColor);
-  const activeLanes = row.before.map((hash, lane) => {
+  const color = graphColor(baseRow.laneColor);
+  const activeLanes = topRow.before.map((hash, lane) => {
     if (!hash) return '';
     const laneX = laneOffset + 6 + lane * spacing;
-    const laneStroke = graphColor(row.beforeColors[lane]);
-    if (lane === stashLane) {
-      return `<path class="stash-upper-stem" d="M ${laneX} 0 V ${centerY}" stroke="${laneStroke}"/><path class="stash-lane-continuation" d="M ${laneX} ${centerY} V 44" stroke="${laneStroke}"/>`;
-    }
+    const laneStroke = graphColor(topRow.beforeColors[lane]);
     return `<path class="stash-lane-continuation" d="M ${laneX} 0 V 44" stroke="${laneStroke}"/>`;
   }).join('');
-  const sideConnection = stashLane === baseLane
-    ? ''
-    : `<path class="stash-side-connection" d="M ${centerX} ${centerY} C ${centerX} 34, ${baseX} 32, ${baseX} 44" stroke="${color}"/>`;
+  const stashRoutes = stashPlacements.map((candidate, index) => {
+    if (index > stashIndex) return '';
+    const laneX = laneOffset + 6 + candidate.lane * spacing;
+    const laneColor = graphColor(candidate.baseRow.laneColor);
+    const startY = index === stashIndex ? centerY : 0;
+    return `<path class="stash-route" d="M ${laneX} ${startY} V 44" stroke="${laneColor}"/>`;
+  }).join('');
   return `<svg class="commit-graph stash-graph" width="${width}" height="44" viewBox="0 0 ${width} 44" aria-hidden="true">
-    ${activeLanes}${sideConnection}
-    <rect class="stash-node-halo" x="${centerX - 7}" y="${centerY - 7}" width="14" height="14" stroke="${color}"/>
-    <path class="stash-node-mark" d="M ${centerX - 4} ${centerY - 3} H ${centerX + 4} V ${centerY + 4} H ${centerX - 4} Z M ${centerX - 2} ${centerY} H ${centerX + 2}" stroke="${color}"/>
+    ${activeLanes}${stashRoutes}
+    <g class="stash-node" data-stash-node="${escapeHtml(stash.ref)}">
+      <rect class="stash-node-halo" x="${centerX - 7}" y="${centerY - 7}" width="14" height="14" rx="1" stroke="${color}"/>
+      <path class="stash-node-mark" d="M ${centerX - 4} ${centerY - 3} H ${centerX + 4} V ${centerY + 4} H ${centerX - 4} Z M ${centerX - 2} ${centerY} H ${centerX + 2}" stroke="${color}"/>
+    </g>
   </svg>`;
 }
 
@@ -1367,8 +1376,11 @@ function renderCommits() {
     debug: window.forkline.debugGraphLayout,
   });
   const visibleStashes = (state.snapshot.stashes || []).filter((stash) => !state.hiddenStashHashes.has(stash.hash));
-  const hasWipStash = state.snapshot.status.files.length > 0 && visibleStashes.some((stash) => stash.baseHash === state.snapshot.headHash);
-  const displayLaneCount = graph.laneCount + (hasWipStash ? 1 : 0);
+  const stashPlacements = visibleStashes.map((stash) => {
+    const baseIndex = commits.findIndex((commit) => commit.hash === stash.baseHash);
+    return baseIndex < 0 ? null : { stash, baseIndex, baseRow: graph.rows[baseIndex] };
+  }).filter(Boolean).map((placement, index) => ({ ...placement, lane: graph.laneCount + index }));
+  const displayLaneCount = graph.laneCount + stashPlacements.length;
   const labelWidth = commits.reduce((width, commit) => {
     const refsWidth = graphLabelGroupMetrics(graphLabelDetails(commit, graphColor(0))).width;
     return Math.max(width, refsWidth);
@@ -1379,32 +1391,30 @@ function renderCommits() {
   $('#commits').style.setProperty('--graph-width', `${graphWidth}px`);
   $('.history-head').style.setProperty('--graph-width', `${graphWidth}px`);
   const rows = [];
+  if (graph.workingTreeNode) {
+    const operation = activeConflicts ? state.snapshot.operation : null;
+    const operationMessage = operation?.type === 'merge'
+      ? `Des conflits ont été détectés pendant la fusion dans ${operation.target || state.snapshot.head}`
+      : operation ? `${operation.label} · des conflits doivent être résolus` : '';
+    rows.push(`<button class="working-tree-row${operation ? ' operation-working-tree-row' : ''}" type="button" title="${operation ? 'Afficher les conflits' : 'Afficher les modifications locales'}">
+      ${renderWorkingTreeRow(graph.workingTreeNode, displayLaneCount, graphWidth, operation)}
+      ${operation ? `<span class="operation-graph-message"><b>⚠</b> ${escapeHtml(operationMessage)}</span>` : renderWorkingTreeSummary(state.snapshot.status.files)}
+      <span></span><span></span>
+    </button>`);
+  }
+  stashPlacements.forEach((placement, stashIndex) => {
+    const { stash } = placement;
+    const stashCommit = state.snapshot.commits.find((candidate) => candidate.hash === stash.hash);
+    rows.push(`<button class="commit-row stash-row" data-stash-ref="${escapeHtml(stash.ref)}" data-stash-base-hash="${escapeHtml(stash.baseHash || '')}" title="${escapeHtml(`${stash.ref} · ${stash.branch || 'HEAD détaché'}`)}">
+      ${renderStashGraphRow(placement, graph.rows[0], stashPlacements, stashIndex, displayLaneCount, graphWidth)}
+      <span class="commit-main"><span class="commit-subject">${escapeHtml(stash.message)}</span><span class="commit-meta">${escapeHtml(stashCommit?.shortHash || stash.hash.slice(0, 7))}</span></span>
+      <span class="commit-author">${escapeHtml(stashCommit?.author || '')}</span>
+      <span class="commit-date" title="${escapeHtml(new Date(stash.date).toLocaleString('fr'))}">${relativeTime(stash.date)}</span>
+    </button>`);
+  });
   commits.forEach((commit, index) => {
-    if (graph.workingTreeNode && index === 0) {
-      const operation = activeConflicts ? state.snapshot.operation : null;
-      const operationMessage = operation?.type === 'merge'
-        ? `Des conflits ont été détectés pendant la fusion dans ${operation.target || state.snapshot.head}`
-        : operation ? `${operation.label} · des conflits doivent être résolus` : '';
-      rows.push(`<button class="working-tree-row${operation ? ' operation-working-tree-row' : ''}" type="button" title="${operation ? 'Afficher les conflits' : 'Afficher les modifications locales'}">
-        ${renderWorkingTreeRow(graph.workingTreeNode, displayLaneCount, graphWidth, operation)}
-        ${operation ? `<span class="operation-graph-message"><b>⚠</b> ${escapeHtml(operationMessage)}</span>` : renderWorkingTreeSummary(state.snapshot.status.files)}
-        <span></span><span></span>
-      </button>`);
-    }
-    const attachedStashes = (state.snapshot.stashes || []).filter((stash) => stash.baseHash === commit.hash && !state.hiddenStashHashes.has(stash.hash));
-    attachedStashes.forEach((stash) => {
-      const stashCommit = state.snapshot.commits.find((candidate) => candidate.hash === stash.hash);
-      const isBesideWip = state.snapshot.status.files.length > 0 && stash.baseHash === state.snapshot.headHash;
-      const stashLane = isBesideWip ? graph.laneCount : graph.rows[index].lane;
-      rows.push(`<button class="commit-row stash-row" data-stash-ref="${escapeHtml(stash.ref)}">
-        ${renderStashGraphRow(stash, graph.rows[index], stashLane, displayLaneCount, graphWidth)}
-        <span class="commit-main"><span class="commit-subject">${escapeHtml(stash.message)}</span><span class="commit-meta">${escapeHtml(stashCommit?.shortHash || stash.hash.slice(0, 7))}</span></span>
-        <span class="commit-author">${escapeHtml(stashCommit?.author || '')}</span>
-        <span class="commit-date" title="${escapeHtml(new Date(stash.date).toLocaleString('fr'))}">${relativeTime(stash.date)}</span>
-      </button>`);
-    });
     rows.push(`<button class="commit-row${commit.hash === state.selectedCommit ? ' selected' : ''}${state.compareSelection.includes(commit.hash) ? ' compare-selected' : ''}${commit.stashRole ? ` stash-row stash-${commit.stashRole}` : ''}" data-hash="${commit.hash}">
-      ${renderGraphRow(graph.rows[index], displayLaneCount, commit, graphWidth, index, graph.workingTreeNode, attachedStashes.length > 0)}
+      ${renderGraphRow(graph.rows[index], displayLaneCount, commit, graphWidth, index, graph.workingTreeNode, stashPlacements)}
       <span class="commit-main"><span class="commit-subject">${escapeHtml(commit.subject)}</span><span class="commit-meta">${commit.shortHash}</span></span>
       <span class="commit-author">${escapeHtml(commit.author)}</span>
       <span class="commit-date" title="${escapeHtml(new Date(commit.date).toLocaleString('fr'))}">${relativeTime(commit.date)}</span>

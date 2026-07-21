@@ -202,14 +202,16 @@ button { cursor: pointer; }
 .commit-row { position: relative; width: 100%; min-height: 44px; padding: 0 20px 0 0; align-items: center; border: 0; border-bottom: 1px solid rgba(255,255,255,.045); color: #bdc5ce; background: transparent; text-align: left; }
 .commit-row:hover, .commit-row.selected { background: rgba(255,255,255,.055); }
 .commit-row.compare-selected { box-shadow: inset 3px 0 #8b7cf6; background: rgba(139,124,246,.09); }
-.commit-row.stash-row { background: rgba(139,124,246,.025); }
-.commit-row.stash-row .commit-subject { color: var(--text-secondary, #8993a0); font-style: italic; font-weight: 500; }
-.commit-row.stash-row:hover { background: rgba(139,124,246,.07); }
+.commit-row.stash-row { background: transparent; }
+.commit-row.stash-row .commit-subject { color: #8e9baa; font-style: italic; font-weight: 500; }
+.commit-row.stash-row .commit-meta { color: #5f7082; }
+.commit-row.stash-row:hover { background: rgba(79,140,255,.07); }
 .commit-graph .stash-edge { stroke-dasharray: 3 4; }
-.stash-graph .stash-lane-continuation, .stash-graph .stash-upper-stem, .stash-graph .stash-side-connection { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
-.stash-graph .stash-upper-stem { stroke-dasharray: 2 3; }
-.stash-node-halo { fill: #0e1217; stroke-width: 2; stroke-dasharray: 2 2; }
-.stash-node-mark { fill: none; stroke-width: 1.2; opacity: 1 !important; }
+.stash-graph .stash-lane-continuation { fill: none; stroke-width: 2; stroke-linecap: round; }
+.stash-route { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 2 3; }
+.stash-node { filter: drop-shadow(0 0 2px rgba(79,140,255,.28)); }
+.stash-node-halo { fill: #0e1217; stroke-width: 1.8; stroke-dasharray: 2 2; }
+.stash-node-mark { fill: none; stroke-width: 1.35; stroke-linecap: square; stroke-linejoin: round; opacity: 1 !important; }
 .working-tree-row { position: relative; width: 100%; min-height: 44px; padding: 0 20px 0 0; display: grid; grid-template-columns: var(--graph-width, 76px) minmax(210px, 1fr) 130px 92px; align-items: center; border: 0; border-bottom: 1px solid rgba(23,25,22,.07); color: #147c88; background: rgba(42, 180, 193, .045); text-align: left; }
 .working-tree-row:hover { background: rgba(42, 180, 193, .09); }
 .working-tree-row.operation-working-tree-row { color: #e1b568; background: rgba(178,119,38,.11); }
