@@ -1068,13 +1068,14 @@ function graphIconMarkup(type, x, y, color) {
   return `<text class="sync-icon" x="${x + 1}" y="${y + 10}" fill="${color}" font-size="11" font-weight="800">${symbol}</text>`;
 }
 
-function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTreeNode, stashPlacements = []) {
+function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTreeNode, stashPlacements = [], graphLaneShift = 0) {
   const spacing = 16;
   const centerY = 22;
   const laneWidth = graphLaneWidth(laneCount);
   const width = graphWidth || laneWidth;
   const laneOffset = Math.max(0, width - laneWidth);
   const x = (lane) => laneOffset + 6 + lane * spacing;
+  const graphX = (lane) => x(lane + graphLaneShift);
   const paths = [];
   const isStash = Boolean(commit.stashRole);
 
@@ -1085,33 +1086,33 @@ function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTre
       paths.push(`<path class="stash-route" d="M ${stashX} 0 V 44" stroke="${stashColor}"/>`);
       return;
     }
-    const baseX = x(row.lane);
+    const baseX = graphX(row.lane);
     paths.push(`<path class="stash-route stash-base-connection" d="M ${stashX} 0 V 8 C ${stashX} 15, ${baseX} 13, ${baseX} ${centerY}" stroke="${stashColor}"/>`);
   });
 
   row.before.forEach((value, lane) => {
     if (value && !(row.startsHere && lane === row.lane)) {
       const workingStroke = workingTreeNode && lane === workingTreeNode.lane && rowIndex <= workingTreeNode.commitIndex;
-      paths.push(`<path${isStash && lane === row.lane ? ' class="stash-edge"' : ''} d="M ${x(lane)} 0 L ${x(lane)} ${centerY}" stroke="${workingStroke ? '#24b4c2' : graphColor(row.beforeColors[lane])}"${workingStroke ? ' stroke-dasharray="2 5"' : ''}/> `);
+      paths.push(`<path${isStash && lane === row.lane ? ' class="stash-edge"' : ''} d="M ${graphX(lane)} 0 L ${graphX(lane)} ${centerY}" stroke="${workingStroke ? '#24b4c2' : graphColor(row.beforeColors[lane])}"${workingStroke ? ' stroke-dasharray="2 5"' : ''}/> `);
     }
   });
   row.after.forEach((value, lane) => {
     const continuesThroughRow = row.before[lane] || lane === row.lane;
     if (value && continuesThroughRow) {
       const workingStroke = workingTreeNode && lane === workingTreeNode.lane && rowIndex < workingTreeNode.commitIndex;
-      paths.push(`<path${isStash && lane === row.lane ? ' class="stash-edge"' : ''} d="M ${x(lane)} ${centerY} L ${x(lane)} 44" stroke="${workingStroke ? '#24b4c2' : graphColor(row.afterColors[lane])}"${workingStroke ? ' stroke-dasharray="2 5"' : ''}/> `);
+      paths.push(`<path${isStash && lane === row.lane ? ' class="stash-edge"' : ''} d="M ${graphX(lane)} ${centerY} L ${graphX(lane)} 44" stroke="${workingStroke ? '#24b4c2' : graphColor(row.afterColors[lane])}"${workingStroke ? ' stroke-dasharray="2 5"' : ''}/> `);
     }
   });
   row.connections.forEach(({ from, to, toColor }) => {
     if (from === to) return;
-    paths.push(`<path class="graph-curve${isStash && from === row.lane ? ' stash-edge' : ''}" d="M ${x(from)} ${centerY} C ${x(from)} 34, ${x(to)} 32, ${x(to)} 44" stroke="${graphColor(toColor)}"/>`);
+    paths.push(`<path class="graph-curve${isStash && from === row.lane ? ' stash-edge' : ''}" d="M ${graphX(from)} ${centerY} C ${graphX(from)} 34, ${graphX(to)} 32, ${graphX(to)} 44" stroke="${graphColor(toColor)}"/>`);
   });
   row.joins?.forEach(({ from, to, color: joinColor }) => {
-    paths.push(`<path class="graph-curve graph-join" d="M ${x(from)} ${centerY} C ${x(from)} 34, ${x(to)} 32, ${x(to)} 44" stroke="${graphColor(joinColor)}"/>`);
+    paths.push(`<path class="graph-curve graph-join" d="M ${graphX(from)} ${centerY} C ${graphX(from)} 34, ${graphX(to)} 32, ${graphX(to)} 44" stroke="${graphColor(joinColor)}"/>`);
   });
   row.transitions?.forEach(({ from, to }, transitionIndex) => {
     if (from === to) return;
-    paths.push(`<path class="graph-transition" d="M ${x(from)} 44 C ${x(from)} 44, ${x(to)} 44, ${x(to)} 44" stroke="${graphColor(row.transitionColors?.[transitionIndex])}"/>`);
+    paths.push(`<path class="graph-transition" d="M ${graphX(from)} 44 C ${graphX(from)} 44, ${graphX(to)} 44, ${graphX(to)} 44" stroke="${graphColor(row.transitionColors?.[transitionIndex])}"/>`);
   });
 
   if (window.forkline.debugGraphLayout) {
@@ -1120,17 +1121,17 @@ function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTre
 
   const color = graphColor(row.laneColor);
   const labels = graphLabelDetails(commit, color);
-  const labelGroup = graphLabelGroupMarkup(labels, x(row.lane), centerY, color);
+  const labelGroup = graphLabelGroupMarkup(labels, graphX(row.lane), centerY, color);
   const nodeColor = color;
   const nodeMarkup = isStash
-    ? `<rect class="stash-node-halo" x="${x(row.lane) - 7}" y="${centerY - 7}" width="14" height="14" stroke="${nodeColor}"/><path class="stash-node-mark" d="M ${x(row.lane) - 4} ${centerY - 3} H ${x(row.lane) + 4} V ${centerY + 4} H ${x(row.lane) - 4} Z M ${x(row.lane) - 2} ${centerY} H ${x(row.lane) + 2}" stroke="${nodeColor}"/>`
-    : `<circle class="commit-node-halo" cx="${x(row.lane)}" cy="${centerY}" r="6.5"/><circle class="commit-node" cx="${x(row.lane)}" cy="${centerY}" r="4" fill="${color}" stroke="${color}"/>`;
+    ? `<rect class="stash-node-halo" x="${graphX(row.lane) - 7}" y="${centerY - 7}" width="14" height="14" stroke="${nodeColor}"/><path class="stash-node-mark" d="M ${graphX(row.lane) - 4} ${centerY - 3} H ${graphX(row.lane) + 4} V ${centerY + 4} H ${graphX(row.lane) - 4} Z M ${graphX(row.lane) - 2} ${centerY} H ${graphX(row.lane) + 2}" stroke="${nodeColor}"/>`
+    : `<circle class="commit-node-halo" cx="${graphX(row.lane)}" cy="${centerY}" r="6.5"/><circle class="commit-node" cx="${graphX(row.lane)}" cy="${centerY}" r="4" fill="${color}" stroke="${color}"/>`;
   return `<svg class="commit-graph" width="${width}" height="44" viewBox="0 0 ${width} 44" aria-hidden="true">
     <g fill="none" stroke-width="2.5" stroke-linecap="round">${paths.join('')}</g>
     ${labelGroup}
     <g class="commit-node-target" data-commit-node="${escapeHtml(commit.hash)}">
       ${nodeMarkup}
-      <circle class="commit-node-hit-area" cx="${x(row.lane)}" cy="${centerY}" r="10"/>
+      <circle class="commit-node-hit-area" cx="${graphX(row.lane)}" cy="${centerY}" r="10"/>
     </g>
   </svg>`;
 }
@@ -1191,7 +1192,7 @@ function bindGraphBranchInteractions() {
   });
 }
 
-function renderStashGraphRow(placement, topRow, stashPlacements, stashIndex, laneCount, graphWidth) {
+function renderStashGraphRow(placement, topRow, stashPlacements, stashIndex, laneCount, graphWidth, graphLaneShift = 0) {
   const { stash, lane: stashLane, baseRow } = placement;
   const spacing = 16;
   const laneWidth = graphLaneWidth(laneCount);
@@ -1202,7 +1203,7 @@ function renderStashGraphRow(placement, topRow, stashPlacements, stashIndex, lan
   const color = graphColor(baseRow.laneColor);
   const activeLanes = topRow.before.map((hash, lane) => {
     if (!hash) return '';
-    const laneX = laneOffset + 6 + lane * spacing;
+    const laneX = laneOffset + 6 + (lane + graphLaneShift) * spacing;
     const laneStroke = graphColor(topRow.beforeColors[lane]);
     return `<path class="stash-lane-continuation" d="M ${laneX} 0 V 44" stroke="${laneStroke}"/>`;
   }).join('');
@@ -1222,11 +1223,11 @@ function renderStashGraphRow(placement, topRow, stashPlacements, stashIndex, lan
   </svg>`;
 }
 
-function renderWorkingTreeRow(node, laneCount, graphWidth, operation = null) {
+function renderWorkingTreeRow(node, laneCount, graphWidth, operation = null, graphLaneShift = 0) {
   const spacing = 16;
   const width = graphWidth || graphLaneWidth(laneCount);
   const laneWidth = graphLaneWidth(laneCount);
-  const centerX = Math.max(0, width - laneWidth) + 6 + node.lane * spacing;
+  const centerX = Math.max(0, width - laneWidth) + 6 + (node.lane + graphLaneShift) * spacing;
   if (operation) return `<svg class="working-tree-graph conflict-working-tree-graph" width="${width}" height="44" viewBox="0 0 ${width} 44" aria-hidden="true">
     <path class="conflict-working-tree-link" d="M ${centerX} 13 L ${centerX} 44"/>
     <circle class="conflict-working-tree-node" cx="${centerX}" cy="13" r="6.5"/>
@@ -1379,7 +1380,8 @@ function renderCommits() {
   const stashPlacements = visibleStashes.map((stash) => {
     const baseIndex = commits.findIndex((commit) => commit.hash === stash.baseHash);
     return baseIndex < 0 ? null : { stash, baseIndex, baseRow: graph.rows[baseIndex] };
-  }).filter(Boolean).map((placement, index) => ({ ...placement, lane: graph.laneCount + index }));
+  }).filter(Boolean).map((placement, index) => ({ ...placement, lane: index }));
+  const graphLaneShift = stashPlacements.length;
   const displayLaneCount = graph.laneCount + stashPlacements.length;
   const labelWidth = commits.reduce((width, commit) => {
     const refsWidth = graphLabelGroupMetrics(graphLabelDetails(commit, graphColor(0))).width;
@@ -1397,7 +1399,7 @@ function renderCommits() {
       ? `Des conflits ont été détectés pendant la fusion dans ${operation.target || state.snapshot.head}`
       : operation ? `${operation.label} · des conflits doivent être résolus` : '';
     rows.push(`<button class="working-tree-row${operation ? ' operation-working-tree-row' : ''}" type="button" title="${operation ? 'Afficher les conflits' : 'Afficher les modifications locales'}">
-      ${renderWorkingTreeRow(graph.workingTreeNode, displayLaneCount, graphWidth, operation)}
+      ${renderWorkingTreeRow(graph.workingTreeNode, displayLaneCount, graphWidth, operation, graphLaneShift)}
       ${operation ? `<span class="operation-graph-message"><b>⚠</b> ${escapeHtml(operationMessage)}</span>` : renderWorkingTreeSummary(state.snapshot.status.files)}
       <span></span><span></span>
     </button>`);
@@ -1406,7 +1408,7 @@ function renderCommits() {
     const { stash } = placement;
     const stashCommit = state.snapshot.commits.find((candidate) => candidate.hash === stash.hash);
     rows.push(`<button class="commit-row stash-row" data-stash-ref="${escapeHtml(stash.ref)}" data-stash-base-hash="${escapeHtml(stash.baseHash || '')}" title="${escapeHtml(`${stash.ref} · ${stash.branch || 'HEAD détaché'}`)}">
-      ${renderStashGraphRow(placement, graph.rows[0], stashPlacements, stashIndex, displayLaneCount, graphWidth)}
+      ${renderStashGraphRow(placement, graph.rows[0], stashPlacements, stashIndex, displayLaneCount, graphWidth, graphLaneShift)}
       <span class="commit-main"><span class="commit-subject">${escapeHtml(stash.message)}</span><span class="commit-meta">${escapeHtml(stashCommit?.shortHash || stash.hash.slice(0, 7))}</span></span>
       <span class="commit-author">${escapeHtml(stashCommit?.author || '')}</span>
       <span class="commit-date" title="${escapeHtml(new Date(stash.date).toLocaleString('fr'))}">${relativeTime(stash.date)}</span>
@@ -1414,7 +1416,7 @@ function renderCommits() {
   });
   commits.forEach((commit, index) => {
     rows.push(`<button class="commit-row${commit.hash === state.selectedCommit ? ' selected' : ''}${state.compareSelection.includes(commit.hash) ? ' compare-selected' : ''}${commit.stashRole ? ` stash-row stash-${commit.stashRole}` : ''}" data-hash="${commit.hash}">
-      ${renderGraphRow(graph.rows[index], displayLaneCount, commit, graphWidth, index, graph.workingTreeNode, stashPlacements)}
+      ${renderGraphRow(graph.rows[index], displayLaneCount, commit, graphWidth, index, graph.workingTreeNode, stashPlacements, graphLaneShift)}
       <span class="commit-main"><span class="commit-subject">${escapeHtml(commit.subject)}</span><span class="commit-meta">${commit.shortHash}</span></span>
       <span class="commit-author">${escapeHtml(commit.author)}</span>
       <span class="commit-date" title="${escapeHtml(new Date(commit.date).toLocaleString('fr'))}">${relativeTime(commit.date)}</span>

@@ -77,7 +77,7 @@ test('merge conflicts open a dedicated GitKraken-style inspector with complete a
 });
 
 test('conflicted operations keep the graph topology visible without a WIP badge', () => {
-  assert.match(renderer, /renderWorkingTreeRow\(graph\.workingTreeNode, displayLaneCount, graphWidth, operation\)/);
+  assert.match(renderer, /renderWorkingTreeRow\(graph\.workingTreeNode, displayLaneCount, graphWidth, operation, graphLaneShift\)/);
   assert.match(renderer, /class="conflict-working-tree-node"/);
   assert.match(renderer, /Des conflits ont été détectés pendant la fusion dans/);
 });
@@ -213,6 +213,8 @@ test('stash rows sit below WIP and route back to their base commit', () => {
   const commitRenderer = renderer.match(/function renderCommits\(\)[\s\S]*?(?=\nfunction toggleCommitComparison)/)?.[0] || '';
   assert.match(commitRenderer, /baseIndex = commits\.findIndex\(\(commit\) => commit\.hash === stash\.baseHash\)/);
   assert.match(commitRenderer, /data-stash-base-hash=/);
+  assert.match(commitRenderer, /\.map\(\(placement, index\) => \(\{ \.\.\.placement, lane: index \}\)\)/);
+  assert.match(commitRenderer, /const graphLaneShift = stashPlacements\.length/);
   assert.ok(commitRenderer.indexOf('working-tree-row') < commitRenderer.indexOf('stashPlacements.forEach'));
   assert.ok(commitRenderer.indexOf('stashPlacements.forEach') < commitRenderer.indexOf('commits.forEach'));
   assert.match(renderer, /stash-base-connection/);
