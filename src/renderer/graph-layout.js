@@ -88,6 +88,33 @@
     };
   }
 
+  function stashDisplayIndex(commits, stash, baseIndex) {
+    const safeBaseIndex = Math.max(0, Math.min(Number(baseIndex) || 0, Math.max(0, commits.length - 1)));
+    const stashTime = Date.parse(stash?.date || '');
+    if (!Number.isFinite(stashTime)) return safeBaseIndex;
+
+    const chronologicalIndex = commits.findIndex((commit) => {
+      const commitTime = Date.parse(commit.committerDate || commit.date || '');
+      return Number.isFinite(commitTime) && commitTime <= stashTime;
+    });
+    if (chronologicalIndex < 0) return safeBaseIndex;
+    return Math.min(chronologicalIndex, safeBaseIndex);
+  }
+
+  function stashVisibilityAfterAction(hiddenHashes, action, stashHash, allHashes) {
+    const knownHashes = new Set(allHashes || []);
+    const hidden = new Set((hiddenHashes || []).filter((hash) => knownHashes.has(hash)));
+    if (action === 'toggle-visibility' && stashHash && knownHashes.has(stashHash)) {
+      if (hidden.has(stashHash)) hidden.delete(stashHash);
+      else hidden.add(stashHash);
+    } else if (action === 'hide-all') {
+      knownHashes.forEach((hash) => hidden.add(hash));
+    } else if (action === 'show-all') {
+      hidden.clear();
+    }
+    return [...hidden];
+  }
+
   function layoutCommitGraph(commits, options = {}) {
     const lanes = [];
     const laneColors = [];
@@ -262,5 +289,5 @@
     return { rows, laneCount, workingTreeNode };
   }
 
-  return { filterGraphVisibility, layoutCommitGraph };
+  return { filterGraphVisibility, layoutCommitGraph, stashDisplayIndex, stashVisibilityAfterAction };
 }));

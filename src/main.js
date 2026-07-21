@@ -384,9 +384,25 @@ app.whenReady().then(() => {
     const { output, snapshot } = await repositoryWatcher.mutate(() => git.restoreStash(ref, 'pop'));
     return { ...output, snapshot };
   });
+  handle('repository:rename-stash', async (ref, message) => {
+    const { output, snapshot } = await repositoryWatcher.mutate(() => git.renameStash(ref, message));
+    return { output, snapshot };
+  });
   handle('repository:drop-stash', async (ref) => {
     const { output, snapshot } = await repositoryWatcher.mutate(() => git.dropStash(ref));
     return { output, snapshot };
+  });
+  handle('repository:export-stash-patch', async (ref, suggestedName) => {
+    const patch = await git.stashDiff(ref);
+    const safeName = path.basename(String(suggestedName || 'stash.patch'));
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Exporter le stash en patch',
+      defaultPath: path.join(git.repoPath, safeName.endsWith('.patch') ? safeName : `${safeName}.patch`),
+      filters: [{ name: 'Patch Git', extensions: ['patch'] }],
+    });
+    if (result.canceled || !result.filePath) return null;
+    await fs.writeFile(result.filePath, patch, 'utf8');
+    return result.filePath;
   });
   handle('repository:switch', async (name) => (await repositoryWatcher.mutate(() => git.switchBranch(name))).snapshot);
   handle('repository:create-branch', async (name, startPoint, checkout) => {

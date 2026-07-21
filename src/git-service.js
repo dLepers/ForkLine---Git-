@@ -805,6 +805,20 @@ class GitService {
     }
   }
 
+  async renameStash(ref, message) {
+    this.validateStashRef(ref);
+    const cleanMessage = String(message || '').trim();
+    if (!cleanMessage || /[\0\r\n]/.test(cleanMessage)) throw new GitError('Le message du stash est invalide.');
+    const stashes = await this.stashes();
+    const stashIndex = stashes.findIndex((stash) => stash.ref === ref);
+    if (stashIndex < 0) throw new GitError('Le stash est introuvable.');
+    const stash = stashes[stashIndex];
+    const subject = stash.branch ? `On ${stash.branch}: ${cleanMessage}` : cleanMessage;
+    await this.run(['stash', 'store', '-m', subject, stash.hash]);
+    await this.run(['stash', 'drop', `stash@{${stashIndex + 1}}`]);
+    return `Stash renommé : ${cleanMessage}`;
+  }
+
   async restoreStash(ref, mode, files = []) {
     this.validateStashRef(ref);
     if (!['apply', 'pop'].includes(mode)) throw new GitError('Action de stash invalide.');

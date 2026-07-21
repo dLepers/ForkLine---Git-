@@ -822,6 +822,23 @@ test('pops a stash and removes it from the list', async () => {
   assert.match(await fs.readFile(path.join(repository, 'README.md'), 'utf8'), /Pop change/);
 });
 
+test('renames an existing stash without losing its content', async () => {
+  await fs.appendFile(path.join(repository, 'README.md'), 'First stash change\n');
+  await git.createStash({ message: 'Premier message', files: ['README.md'] });
+  await fs.appendFile(path.join(repository, 'README.md'), 'Second stash change\n');
+  await git.createStash({ message: 'Deuxième message', files: ['README.md'] });
+
+  await git.renameStash('stash@{1}', 'Message renommé');
+
+  const stashes = await git.stashes();
+  const renamed = stashes.find((stash) => stash.message === 'Message renommé');
+  assert.equal(stashes.length, 2);
+  assert.ok(renamed);
+  assert.equal(renamed.branch, 'main');
+  assert.match(await git.stashDiff(renamed.ref), /First stash change/);
+  await assert.rejects(() => git.renameStash(renamed.ref, '   '), /message du stash est invalide/);
+});
+
 test('applies only selected tracked files from a stash', async () => {
   await fs.writeFile(path.join(repository, 'other.txt'), 'Original\n');
   await git.stage(['other.txt']);

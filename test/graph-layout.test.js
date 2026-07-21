@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { filterGraphVisibility, layoutCommitGraph } = require('../src/renderer/graph-layout');
+const {
+  filterGraphVisibility, layoutCommitGraph, stashDisplayIndex, stashVisibilityAfterAction,
+} = require('../src/renderer/graph-layout');
 
 test('keeps descendant branch tips parallel to the active branch until HEAD', () => {
   const graph = layoutCommitGraph([
@@ -184,4 +186,28 @@ test('solo keeps the selected branch, its upstream and their shared history', ()
 
   assert.deepEqual(visibility.branches.map((branch) => branch.name), ['feature/test', 'origin/feature/test']);
   assert.deepEqual(visibility.commits.map((commit) => commit.hash), ['feature-tip', 'root']);
+});
+
+test('places a stash chronologically below newer commits and above its base', () => {
+  const commits = [
+    { hash: 'newest', committerDate: '2026-07-21T10:16:26+02:00' },
+    { hash: 'newer', committerDate: '2026-07-21T10:11:36+02:00' },
+    { hash: 'older-head', committerDate: '2026-07-20T16:17:29+02:00' },
+    { hash: 'base', committerDate: '2026-07-16T12:00:00+02:00' },
+  ];
+
+  assert.equal(stashDisplayIndex(commits, { date: '2026-07-21T08:58:34+02:00' }, 3), 2);
+  assert.equal(stashDisplayIndex(commits, { date: '2026-07-15T08:58:34+02:00' }, 3), 3);
+});
+
+test('toggles one stash visibility in both directions like GitKraken', () => {
+  const hidden = stashVisibilityAfterAction([], 'toggle-visibility', 'stash-a', ['stash-a', 'stash-b']);
+  assert.deepEqual(hidden, ['stash-a']);
+  assert.deepEqual(stashVisibilityAfterAction(hidden, 'toggle-visibility', 'stash-a', ['stash-a', 'stash-b']), []);
+});
+
+test('hides and shows every stash while removing stale visibility entries', () => {
+  const hidden = stashVisibilityAfterAction(['deleted-stash'], 'hide-all', null, ['stash-a', 'stash-b']);
+  assert.deepEqual(hidden.sort(), ['stash-a', 'stash-b']);
+  assert.deepEqual(stashVisibilityAfterAction(hidden, 'show-all', null, ['stash-a', 'stash-b']), []);
 });

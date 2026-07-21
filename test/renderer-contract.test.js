@@ -202,22 +202,49 @@ test('contextual tag creation uses a shared validated dialog and selected revisi
 
 test('stash rows preserve every active graph lane', () => {
   const stashRenderer = renderer.match(/function renderStashGraphRow[\s\S]*?(?=\nfunction renderWorkingTreeRow)/)?.[0] || '';
-  assert.match(stashRenderer, /topRow\.before\.map/);
-  assert.match(stashRenderer, /topRow\.beforeColors\[lane\]/);
+  assert.match(stashRenderer, /insertionRow\.before\.map/);
+  assert.match(stashRenderer, /insertionRow\.beforeColors\[lane\]/);
   assert.match(stashRenderer, /stash-lane-continuation/);
   assert.match(stashRenderer, /stash-route/);
   assert.match(stashRenderer, /class="stash-node" data-stash-node=/);
 });
 
-test('stash rows sit below WIP and route back to their base commit', () => {
+test('stash rows follow their timestamp and route back to their base commit', () => {
   const commitRenderer = renderer.match(/function renderCommits\(\)[\s\S]*?(?=\nfunction toggleCommitComparison)/)?.[0] || '';
   assert.match(commitRenderer, /baseIndex = commits\.findIndex\(\(commit\) => commit\.hash === stash\.baseHash\)/);
+  assert.match(commitRenderer, /ForklineGraph\.stashDisplayIndex\(commits, stash, baseIndex\)/);
   assert.match(commitRenderer, /data-stash-base-hash=/);
   assert.match(commitRenderer, /\.map\(\(placement, index\) => \(\{ \.\.\.placement, lane: index \}\)\)/);
   assert.match(commitRenderer, /const graphLaneShift = stashPlacements\.length/);
-  assert.ok(commitRenderer.indexOf('working-tree-row') < commitRenderer.indexOf('stashPlacements.forEach'));
-  assert.ok(commitRenderer.indexOf('stashPlacements.forEach') < commitRenderer.indexOf('commits.forEach'));
+  assert.match(commitRenderer, /placement\.displayIndex === index/);
   assert.match(renderer, /stash-base-connection/);
+});
+
+test('stash context menu exposes GitKraken actions and Forkline equivalents', () => {
+  const stashMenu = renderer.match(/function showStashContextMenu[\s\S]*?(?=\nconst GRAPH_COLORS)/)?.[0] || '';
+  const operations = ['apply', 'pop', 'drop', 'rename', 'export', 'toggle-visibility', 'hide-all', 'show-all'];
+  operations.forEach((operation) => {
+    assert.match(stashMenu, new RegExp(`data-stash-menu-action="${operation}"`));
+  });
+  const positions = operations.map((operation) => stashMenu.indexOf(`data-stash-menu-action="${operation}"`));
+  assert.deepEqual(positions, [...positions].sort((left, right) => left - right));
+  assert.match(stashMenu, /Pop : appliquer puis supprimer/);
+  assert.match(renderer, /window\.forkline\.renameStash\(stash\.ref, message\.trim\(\)\)/);
+  assert.match(renderer, /window\.forkline\.exportStashPatch\(stash\.ref,/);
+  assert.match(stashMenu, /updateStashVisibility\(operation, stash\.hash\)/);
+  assert.match(stashMenu, /updateStashVisibility\(operation\)/);
+  assert.match(stashMenu, /runStashAction\(operation, ref\)/);
+  assert.match(renderer, /Supprimer définitivement le stash « \$\{stash\?\.message \|\| ref\} »/);
+  assert.match(renderer, /graph-hidden/);
+});
+
+test('stash patch export stays in the main process and writes the selected file', () => {
+  const exportHandler = main.match(/handle\('repository:export-stash-patch'[\s\S]*?(?=\n  handle\('repository:switch')/)?.[0] || '';
+  assert.match(exportHandler, /git\.stashDiff\(ref\)/);
+  assert.match(exportHandler, /path\.basename\(String\(suggestedName/);
+  assert.match(exportHandler, /dialog\.showSaveDialog\(mainWindow/);
+  assert.match(exportHandler, /fs\.writeFile\(result\.filePath, patch, 'utf8'\)/);
+  assert.match(preload, /exportStashPatch: \(ref, suggestedName\) => invoke\('repository:export-stash-patch'/);
 });
 
 test('branch context actions follow the selected branch state and update graph visibility', () => {

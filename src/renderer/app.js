@@ -941,14 +941,15 @@ function showTagContextMenu(name, hash, x, y) {
 
 function renderStashes() {
   const stashes = state.snapshot.stashes || [];
-  const visibleStashes = stashes.filter((stash) => !state.hiddenStashHashes.has(stash.hash));
-  const hiddenCount = stashes.length - visibleStashes.length;
+  const hiddenCount = stashes.filter((stash) => state.hiddenStashHashes.has(stash.hash)).length;
   const popButton = $('#toolbar-pop-stash');
   if (popButton) popButton.disabled = stashes.length === 0;
-  $('#stashes').innerHTML = `${visibleStashes.length ? visibleStashes.map((stash) => `
-    <button class="stash-item${state.selectedStash === stash.ref ? ' selected' : ''}" type="button" data-stash="${escapeHtml(stash.ref)}" title="${escapeHtml(stash.subject)}">
-      <span class="stash-glyph">▣</span><span class="stash-item-main"><strong>${escapeHtml(stash.message)}</strong><small>${escapeHtml(stash.branch || 'HEAD détaché')} · ${stash.fileCount} fichier${stash.fileCount > 1 ? 's' : ''}</small></span>
-    </button>`).join('') : '<div class="stash-empty">Aucun stash visible</div>'}${hiddenCount ? `<button id="show-hidden-stashes" class="show-hidden-stashes" type="button">Afficher ${hiddenCount} stash${hiddenCount > 1 ? 's' : ''} masqué${hiddenCount > 1 ? 's' : ''}</button>` : ''}`;
+  $('#stashes').innerHTML = `${stashes.length ? stashes.map((stash) => {
+    const hidden = state.hiddenStashHashes.has(stash.hash);
+    return `<button class="stash-item${state.selectedStash === stash.ref ? ' selected' : ''}${hidden ? ' graph-hidden' : ''}" type="button" data-stash="${escapeHtml(stash.ref)}" title="${escapeHtml(stash.subject)}">
+      <span class="stash-glyph">▣</span><span class="stash-item-main"><strong>${escapeHtml(stash.message)}</strong><small>${escapeHtml(stash.branch || 'HEAD détaché')} · ${stash.fileCount} fichier${stash.fileCount > 1 ? 's' : ''}${hidden ? ' · masqué du graphe' : ''}</small></span>
+    </button>`;
+  }).join('') : '<div class="stash-empty">Aucun stash</div>'}${hiddenCount ? '<button id="show-hidden-stashes" class="show-hidden-stashes" type="button">Afficher tous les stashes dans le graphe</button>' : ''}`;
   $$('.stash-item').forEach((button) => button.addEventListener('click', () => selectStash(button.dataset.stash)));
   $$('.stash-item').forEach((button) => button.addEventListener('contextmenu', (event) => {
     event.preventDefault();
@@ -968,6 +969,37 @@ function closeStashContextMenu() {
   $('#stash-context-menu')?.remove();
 }
 
+function refreshStashVisibility() {
+  saveHiddenStashHashes();
+  renderBranches();
+  renderStashes();
+  renderCommits();
+}
+
+function updateStashVisibility(operation, stashHash = null) {
+  const allHashes = (state.snapshot.stashes || []).map((stash) => stash.hash);
+  state.hiddenStashHashes = new Set(window.ForklineGraph.stashVisibilityAfterAction(
+    [...state.hiddenStashHashes], operation, stashHash, allHashes,
+  ));
+  refreshStashVisibility();
+}
+
+async function renameStashFromMenu(stash) {
+  const message = window.prompt('Nouveau message du stash :', stash.message);
+  if (!message?.trim() || message.trim() === stash.message) return;
+  const result = await action('', () => window.forkline.renameStash(stash.ref, message.trim()).then(unwrap));
+  if (!result) return;
+  state.selectedStash = null;
+  applySnapshot(result.snapshot);
+  toast('Message du stash modifié');
+}
+
+async function exportStashFromMenu(stash) {
+  const safeMessage = stash.message.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'stash';
+  const exportedPath = await action('', () => window.forkline.exportStashPatch(stash.ref, `${safeMessage}.patch`).then(unwrap));
+  if (exportedPath) toast(`Patch exporté : ${exportedPath}`);
+}
+
 function showStashContextMenu(ref, clientX, clientY) {
   closeBranchContextMenu();
   closeCommitContextMenu();
@@ -978,26 +1010,37 @@ function showStashContextMenu(ref, clientX, clientY) {
   menu.id = 'stash-context-menu';
   menu.className = 'branch-context-menu';
   menu.setAttribute('role', 'menu');
-  menu.innerHTML = `<div class="branch-context-title"><span>STASH</span><strong>${escapeHtml(stash.message)}</strong></div>
+  const hiddenCount = (state.snapshot.stashes || []).filter((entry) => state.hiddenStashHashes.has(entry.hash)).length;
+  const isHidden = state.hiddenStashHashes.has(stash.hash);
+  menu.innerHTML = `<div class="branch-context-title"><span>STASH · ${escapeHtml(stash.ref)}</span><strong>${escapeHtml(stash.message)}</strong></div>
     <button type="button" role="menuitem" class="branch-context-action" data-stash-menu-action="apply"><span>↓</span><span>Appliquer le stash</span></button>
-    <button type="button" role="menuitem" class="branch-context-action" data-stash-menu-action="pop"><span>↧</span><span>Appliquer et supprimer</span></button>
+    <button type="button" role="menuitem" class="branch-context-action" data-stash-menu-action="pop"><span>↧</span><span>Pop : appliquer puis supprimer</span></button>
+    <button type="button" role="menuitem" class="branch-context-action danger" data-stash-menu-action="drop"><span>⌫</span><span>Supprimer le stash</span></button>
     <div class="branch-context-separator"></div>
-    <button type="button" role="menuitem" class="branch-context-action" data-stash-menu-action="hide"><span>◌</span><span>Masquer du graphe</span></button>
-    <button type="button" role="menuitem" class="branch-context-action danger" data-stash-menu-action="drop"><span>⌫</span><span>Supprimer le stash</span></button>`;
+    <button type="button" role="menuitem" class="branch-context-action" data-stash-menu-action="rename"><span>✎</span><span>Modifier le message…</span></button>
+    <button type="button" role="menuitem" class="branch-context-action" data-stash-menu-action="export"><span>⇩</span><span>Exporter en patch…</span></button>
+    <div class="branch-context-separator"></div>
+    <button type="button" role="menuitem" class="branch-context-action" data-stash-menu-action="toggle-visibility"><span>${isHidden ? '●' : '◌'}</span><span>${isHidden ? 'Afficher ce stash' : 'Masquer ce stash'}</span></button>
+    <button type="button" role="menuitem" class="branch-context-action" data-stash-menu-action="hide-all"><span>◌</span><span>Masquer tous les stashes</span></button>
+    <button type="button" role="menuitem" class="branch-context-action" data-stash-menu-action="show-all"${hiddenCount ? '' : ' disabled'}><span>●</span><span>Afficher tous les stashes</span></button>`;
   document.body.append(menu);
   const bounds = menu.getBoundingClientRect();
   menu.style.left = `${Math.max(8, Math.min(clientX, window.innerWidth - bounds.width - 8))}px`;
   menu.style.top = `${Math.max(52, Math.min(clientY, window.innerHeight - bounds.height - 8))}px`;
   $$('[data-stash-menu-action]').forEach((button) => button.addEventListener('click', () => {
     closeStashContextMenu();
-    if (button.dataset.stashMenuAction === 'hide') {
-      state.hiddenStashHashes.add(stash.hash);
-      saveHiddenStashHashes();
-      if (state.selectedStash === ref) closeDiffPreview();
-      renderBranches();
-      renderStashes();
-      renderCommits();
-    } else runStashAction(button.dataset.stashMenuAction, ref);
+    const operation = button.dataset.stashMenuAction;
+    if (operation === 'toggle-visibility') {
+      if (!isHidden && state.selectedStash === ref) closeDiffPreview();
+      updateStashVisibility(operation, stash.hash);
+    } else if (operation === 'hide-all') {
+      if (state.selectedStash) closeDiffPreview();
+      updateStashVisibility(operation);
+    } else if (operation === 'show-all') {
+      updateStashVisibility(operation);
+    } else if (operation === 'rename') renameStashFromMenu(stash);
+    else if (operation === 'export') exportStashFromMenu(stash);
+    else runStashAction(operation, ref);
   }));
   menu.querySelector('.branch-context-action')?.focus();
 }
@@ -1079,7 +1122,7 @@ function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTre
   const paths = [];
   const isStash = Boolean(commit.stashRole);
 
-  stashPlacements.filter((placement) => rowIndex <= placement.baseIndex).forEach((placement) => {
+  stashPlacements.filter((placement) => rowIndex >= placement.displayIndex && rowIndex <= placement.baseIndex).forEach((placement) => {
     const stashX = x(placement.lane);
     const stashColor = graphColor(placement.baseRow.laneColor);
     if (rowIndex < placement.baseIndex) {
@@ -1192,7 +1235,7 @@ function bindGraphBranchInteractions() {
   });
 }
 
-function renderStashGraphRow(placement, topRow, stashPlacements, stashIndex, laneCount, graphWidth, graphLaneShift = 0) {
+function renderStashGraphRow(placement, insertionRow, stashPlacements, stashIndex, laneCount, graphWidth, graphLaneShift = 0) {
   const { stash, lane: stashLane, baseRow } = placement;
   const spacing = 16;
   const laneWidth = graphLaneWidth(laneCount);
@@ -1201,17 +1244,18 @@ function renderStashGraphRow(placement, topRow, stashPlacements, stashIndex, lan
   const centerX = laneOffset + 6 + stashLane * spacing;
   const centerY = 22;
   const color = graphColor(baseRow.laneColor);
-  const activeLanes = topRow.before.map((hash, lane) => {
+  const activeLanes = insertionRow.before.map((hash, lane) => {
     if (!hash) return '';
     const laneX = laneOffset + 6 + (lane + graphLaneShift) * spacing;
-    const laneStroke = graphColor(topRow.beforeColors[lane]);
+    const laneStroke = graphColor(insertionRow.beforeColors[lane]);
     return `<path class="stash-lane-continuation" d="M ${laneX} 0 V 44" stroke="${laneStroke}"/>`;
   }).join('');
   const stashRoutes = stashPlacements.map((candidate, index) => {
-    if (index > stashIndex) return '';
+    if (candidate.displayIndex > placement.displayIndex || candidate.baseIndex < placement.displayIndex) return '';
+    if (candidate.displayIndex === placement.displayIndex && index > stashIndex) return '';
     const laneX = laneOffset + 6 + candidate.lane * spacing;
     const laneColor = graphColor(candidate.baseRow.laneColor);
-    const startY = index === stashIndex ? centerY : 0;
+    const startY = candidate === placement ? centerY : 0;
     return `<path class="stash-route" d="M ${laneX} ${startY} V 44" stroke="${laneColor}"/>`;
   }).join('');
   return `<svg class="commit-graph stash-graph" width="${width}" height="44" viewBox="0 0 ${width} 44" aria-hidden="true">
@@ -1379,8 +1423,11 @@ function renderCommits() {
   const visibleStashes = (state.snapshot.stashes || []).filter((stash) => !state.hiddenStashHashes.has(stash.hash));
   const stashPlacements = visibleStashes.map((stash) => {
     const baseIndex = commits.findIndex((commit) => commit.hash === stash.baseHash);
-    return baseIndex < 0 ? null : { stash, baseIndex, baseRow: graph.rows[baseIndex] };
-  }).filter(Boolean).map((placement, index) => ({ ...placement, lane: index }));
+    if (baseIndex < 0) return null;
+    const displayIndex = window.ForklineGraph.stashDisplayIndex(commits, stash, baseIndex);
+    return { stash, baseIndex, displayIndex, baseRow: graph.rows[baseIndex] };
+  }).filter(Boolean).sort((left, right) => left.displayIndex - right.displayIndex || Date.parse(right.stash.date) - Date.parse(left.stash.date))
+    .map((placement, index) => ({ ...placement, lane: index }));
   const graphLaneShift = stashPlacements.length;
   const displayLaneCount = graph.laneCount + stashPlacements.length;
   const labelWidth = commits.reduce((width, commit) => {
@@ -1404,17 +1451,18 @@ function renderCommits() {
       <span></span><span></span>
     </button>`);
   }
-  stashPlacements.forEach((placement, stashIndex) => {
-    const { stash } = placement;
-    const stashCommit = state.snapshot.commits.find((candidate) => candidate.hash === stash.hash);
-    rows.push(`<button class="commit-row stash-row" data-stash-ref="${escapeHtml(stash.ref)}" data-stash-base-hash="${escapeHtml(stash.baseHash || '')}" title="${escapeHtml(`${stash.ref} · ${stash.branch || 'HEAD détaché'}`)}">
-      ${renderStashGraphRow(placement, graph.rows[0], stashPlacements, stashIndex, displayLaneCount, graphWidth, graphLaneShift)}
-      <span class="commit-main"><span class="commit-subject">${escapeHtml(stash.message)}</span><span class="commit-meta">${escapeHtml(stashCommit?.shortHash || stash.hash.slice(0, 7))}</span></span>
-      <span class="commit-author">${escapeHtml(stashCommit?.author || '')}</span>
-      <span class="commit-date" title="${escapeHtml(new Date(stash.date).toLocaleString('fr'))}">${relativeTime(stash.date)}</span>
-    </button>`);
-  });
   commits.forEach((commit, index) => {
+    stashPlacements.filter((placement) => placement.displayIndex === index).forEach((placement) => {
+      const { stash } = placement;
+      const stashIndex = stashPlacements.indexOf(placement);
+      const stashCommit = state.snapshot.commits.find((candidate) => candidate.hash === stash.hash);
+      rows.push(`<button class="commit-row stash-row" data-stash-ref="${escapeHtml(stash.ref)}" data-stash-base-hash="${escapeHtml(stash.baseHash || '')}" title="${escapeHtml(`${stash.ref} · ${stash.branch || 'HEAD détaché'}`)}">
+        ${renderStashGraphRow(placement, graph.rows[index], stashPlacements, stashIndex, displayLaneCount, graphWidth, graphLaneShift)}
+        <span class="commit-main"><span class="commit-subject">${escapeHtml(stash.message)}</span><span class="commit-meta">${escapeHtml(stashCommit?.shortHash || stash.hash.slice(0, 7))}</span></span>
+        <span class="commit-author">${escapeHtml(stashCommit?.author || '')}</span>
+        <span class="commit-date" title="${escapeHtml(new Date(stash.date).toLocaleString('fr'))}">${relativeTime(stash.date)}</span>
+      </button>`);
+    });
     rows.push(`<button class="commit-row${commit.hash === state.selectedCommit ? ' selected' : ''}${state.compareSelection.includes(commit.hash) ? ' compare-selected' : ''}${commit.stashRole ? ` stash-row stash-${commit.stashRole}` : ''}" data-hash="${commit.hash}">
       ${renderGraphRow(graph.rows[index], displayLaneCount, commit, graphWidth, index, graph.workingTreeNode, stashPlacements, graphLaneShift)}
       <span class="commit-main"><span class="commit-subject">${escapeHtml(commit.subject)}</span><span class="commit-meta">${commit.shortHash}</span></span>
@@ -2073,7 +2121,8 @@ async function selectStash(ref) {
 async function runStashAction(operation, ref) {
   const labels = { apply: 'Stash appliqué', 'apply-selected': 'Fichiers du stash appliqués', pop: 'Stash appliqué et supprimé', drop: 'Stash supprimé' };
   const methods = { apply: 'applyStash', 'apply-selected': 'applyStash', pop: 'popStash', drop: 'dropStash' };
-  if (operation === 'drop' && !window.confirm(`Supprimer définitivement ${ref} ?`)) return;
+  const stash = (state.snapshot.stashes || []).find((entry) => entry.ref === ref);
+  if (operation === 'drop' && !window.confirm(`Supprimer définitivement le stash « ${stash?.message || ref} » ?`)) return;
   let selectedFiles = [];
   if (operation === 'apply-selected') {
     selectedFiles = $$('[data-stash-file]:checked').map((input) => input.value);
