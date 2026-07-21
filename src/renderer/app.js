@@ -1398,12 +1398,17 @@ function parseHistorySearch(value) {
 }
 
 function showCommitResults(title, commits) {
+  ensureHistoryStructure();
   $('#history-view').classList.remove('hidden');
   $('#changes-view').classList.add('hidden');
-  $('#history-view').innerHTML = `<div class="result-view"><header><div><p class="eyebrow">${escapeHtml(title)}</p><h3>${commits.length} commit${commits.length > 1 ? 's' : ''}</h3></div><button id="close-result-view" type="button" class="icon-button" title="Revenir au graphe">×</button></header><div class="commit-results">${commits.length ? commits.map((commit) => `<button type="button" class="commit-result" data-result-hash="${escapeHtml(commit.hash)}"><span><strong>${escapeHtml(commit.subject)}</strong><small>${escapeHtml(commit.shortHash)}</small></span><span>${escapeHtml(commit.author)}</span><span>${escapeHtml(relativeTime(commit.date))}</span></button>`).join('') : '<p class="empty-results">Aucun résultat.</p>'}</div></div>`;
+  $('.history-head').classList.add('hidden');
+  $('#commits').innerHTML = `<div class="result-view"><header><div><p class="eyebrow">${escapeHtml(title)}</p><h3>${commits.length} commit${commits.length > 1 ? 's' : ''}</h3></div><button id="close-result-view" type="button" class="icon-button" title="Revenir au graphe">×</button></header><div class="commit-results">${commits.length ? commits.map((commit) => `<button type="button" class="commit-result" data-result-hash="${escapeHtml(commit.hash)}"><span><strong>${escapeHtml(commit.subject)}</strong><small>${escapeHtml(commit.shortHash)}</small></span><span>${escapeHtml(commit.author)}</span><span>${escapeHtml(relativeTime(commit.date))}</span></button>`).join('') : '<p class="empty-results">Aucun résultat.</p>'}</div></div>`;
   $('#close-result-view').addEventListener('click', () => {
     state.historyQuery = '';
+    $('#history-search').value = '';
+    $('.history-head').classList.remove('hidden');
     renderCommits();
+    $('#history-search').focus();
   });
   $$('[data-result-hash]').forEach((row) => row.addEventListener('click', () => {
     const commit = commits.find((candidate) => candidate.hash === row.dataset.resultHash);
@@ -1415,6 +1420,7 @@ function renderCommits() {
   hideGraphNodeTooltip();
   ensureHistoryStructure();
   bindHistorySearch();
+  $('.history-head').classList.remove('hidden');
   const commits = visibleGraphCommits();
   const graph = window.ForklineGraph.layoutCommitGraph(commits, {
     headHash: state.snapshot.headHash,

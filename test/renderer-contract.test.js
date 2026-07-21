@@ -271,6 +271,14 @@ test('commit details expose configurable, persistent multi-provider AI analysis'
   assert.match(main, /settings\.saveAnalyses\) await analysisStore\(\)\.set/);
 });
 
+test('history search keeps its input mounted while rendering results', () => {
+  const resultRenderer = renderer.match(/function showCommitResults[\s\S]*?(?=\nfunction renderCommits)/)?.[0] || '';
+  assert.match(resultRenderer, /ensureHistoryStructure\(\)/);
+  assert.match(resultRenderer, /\$\('#commits'\)\.innerHTML/);
+  assert.doesNotMatch(resultRenderer, /\$\('#history-view'\)\.innerHTML/);
+  assert.match(resultRenderer, /\$\('#history-search'\)\.focus\(\)/);
+});
+
 test('long commit and Codex details remain vertically scrollable', () => {
   assert.match(styles, /\.workspace \{[^}]*grid-template-rows: minmax\(0, 1fr\)/);
   assert.match(styles, /\.inspector \{[^}]*min-height: 0;[^}]*overflow: hidden/);
