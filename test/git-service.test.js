@@ -495,6 +495,10 @@ test('searches commits and exposes file history, blame and revision comparison',
   assert.match(await git.compareRevisions(initialHash, latestHash), /\+Historical line/);
   assert.deepEqual(await git.commitFiles(latestHash), [{ status: 'M', path: 'README.md', originalPath: null }]);
   assert.match(await git.commitFileDiff(latestHash, 'README.md'), /\+Historical line/);
+  const analysisData = await git.commitAnalysisData(latestHash);
+  assert.match(analysisData, /commit [0-9a-f]{40}/);
+  assert.match(analysisData, /Document searchable history/);
+  assert.match(analysisData, /\+Historical line/);
 });
 
 test('adds, renames, fetches and removes a remote', async () => {

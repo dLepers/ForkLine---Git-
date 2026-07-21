@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
@@ -8,8 +8,12 @@ const { GitService } = require('./git-service');
 const { RepositoryWatcher } = require('./repository-watcher');
 const { selectGitProfile } = require('./git-profile-rules');
 const { parseCommandLine, launchDetached } = require('./command-line');
+const { CodexAnalysisStore, CodexService, DEFAULT_CODEX_SETTINGS, normalizeCodexSettings } = require('./codex-service');
+const { AiSecretStore, CloudAiService, DEFAULT_AI_SETTINGS, PROVIDERS, normalizeAiSettings } = require('./ai-service');
 
 const git = new GitService();
+const codex = new CodexService();
+const cloudAi = new CloudAiService();
 const execFileAsync = promisify(execFile);
 let mainWindow;
 let undoQueue = [];
@@ -17,6 +21,7 @@ let redoStack = [];
 let historyExpectedState = null;
 let historyMutation = false;
 let branchCreationTrace = null;
+let aiSecrets = null;
 function clearActionHistory() {
   undoQueue = [];
   redoStack = [];
@@ -101,6 +106,22 @@ async function writeApplicationState(state) {
   await fs.mkdir(path.dirname(configPath), { recursive: true });
   await fs.writeFile(temporaryPath, JSON.stringify(state, null, 2));
   await fs.rename(temporaryPath, configPath);
+}
+
+function analysisStore() {
+  return new CodexAnalysisStore(path.join(app.getPath('userData'), 'codex-analyses.json'));
+}
+
+function secretStore() {
+  aiSecrets ||= new AiSecretStore(path.join(app.getPath('userData'), 'ai-secrets.json'), safeStorage);
+  return aiSecrets;
+}
+
+async function aiSettings() {
+  const state = await readApplicationState();
+  if (state.aiSettings) return normalizeAiSettings(state.aiSettings);
+  const legacy = normalizeCodexSettings(state.codexSettings || DEFAULT_CODEX_SETTINGS);
+  return normalizeAiSettings({ ...DEFAULT_AI_SETTINGS, ...legacy, provider: 'codex' });
 }
 
 async function rememberRepository(repository) {
@@ -303,6 +324,36 @@ app.whenReady().then(() => {
     await writeApplicationState({ ...state, externalEditorCommand: cleanCommand });
     return cleanCommand;
   });
+  handle('application:ai-configuration', async () => {
+    const settings = await aiSettings();
+    const secrets = secretStore();
+    const apiKey = settings.provider === 'codex' ? '' : await secrets.get(settings.provider);
+    let status;
+    let models = [];
+    if (settings.provider === 'codex') {
+      const executable = await resolveExecutable('codex').catch(() => 'codex');
+      status = await codex.status(executable);
+      models = status.installed && status.authenticated ? await codex.models(executable).catch(() => []) : [];
+    } else {
+      status = { installed: true, authenticated: Boolean(apiKey), label: apiKey ? `${PROVIDERS[settings.provider].label} configuré` : `Clé API requise pour ${PROVIDERS[settings.provider].label}` };
+      if (apiKey) models = await cloudAi.models(settings, apiKey).catch(() => []);
+    }
+    return { settings, status, models, providers: PROVIDERS, hasApiKey: Boolean(apiKey), securePersistenceAvailable: secrets.securePersistenceAvailable() };
+  });
+  handle('application:set-ai-settings', async (value) => {
+    const settings = normalizeAiSettings(value);
+    const state = await readApplicationState();
+    await writeApplicationState({ ...state, aiSettings: settings });
+    let secret = { hasApiKey: false, persisted: false };
+    if (settings.provider !== 'codex') {
+      const store = secretStore();
+      const existing = await store.get(settings.provider);
+      const apiKey = value.removeApiKey ? '' : (String(value.apiKey || '').trim() || existing);
+      secret = await store.set(settings.provider, apiKey, value.persistApiKey !== false);
+    }
+    return { settings, ...secret };
+  });
+  handle('application:clear-ai-analyses', () => analysisStore().clear());
   handle('repository:save-git-profile', async (profile) => {
     const cleanProfile = validateGitProfile(profile);
     const state = await readApplicationState();
@@ -450,6 +501,45 @@ app.whenReady().then(() => {
   handle('repository:blame', (file, revision) => git.blame(file, revision));
   handle('repository:commit-files', (revision) => git.commitFiles(revision));
   handle('repository:commit-file-diff', (revision, file) => git.commitFileDiff(revision, file));
+  handle('repository:commit-analysis', async (revision) => {
+    if (!git.repoPath) throw new Error('Aucun dépôt n’est ouvert.');
+    await git.validateRevision(revision);
+    return analysisStore().get(git.repoPath, revision);
+  });
+  handle('repository:analyze-commit', async (revision) => {
+    if (!git.repoPath) throw new Error('Aucun dépôt n’est ouvert.');
+    await git.validateRevision(revision);
+    const commitData = await git.commitAnalysisData(revision);
+    const settings = await aiSettings();
+    let result;
+    if (settings.provider === 'codex') {
+      const executable = await resolveExecutable('codex');
+      const status = await codex.status(executable);
+      if (!status.authenticated) throw new Error('Connectez Codex avec « codex login » avant de lancer une analyse.');
+      result = await codex.analyze(executable, commitData, settings, { schemaPath: path.join(__dirname, 'codex-analysis-schema.json'), cwd: app.getPath('temp'), timeout: settings.timeoutSeconds * 1000 });
+    } else {
+      const apiKey = await secretStore().get(settings.provider);
+      const schema = JSON.parse(await fs.readFile(path.join(__dirname, 'codex-analysis-schema.json'), 'utf8'));
+      result = await cloudAi.analyze(commitData, settings, apiKey, schema);
+    }
+    const record = {
+      ...result.analysis,
+      commitHash: revision,
+      provider: PROVIDERS[settings.provider].label,
+      model: settings.model || 'Modèle recommandé par Codex',
+      reasoningEffort: settings.reasoningEffort,
+      createdAt: new Date().toISOString(),
+      truncated: result.truncated,
+      saved: settings.saveAnalyses,
+    };
+    if (settings.saveAnalyses) await analysisStore().set(git.repoPath, revision, record);
+    return record;
+  });
+  handle('repository:delete-commit-analysis', async (revision) => {
+    if (!git.repoPath) throw new Error('Aucun dépôt n’est ouvert.');
+    await git.validateRevision(revision);
+    return analysisStore().delete(git.repoPath, revision);
+  });
   handle('repository:export-commit-patch', async (revision, suggestedName) => {
     const patch = await git.createCommitPatch(revision);
     const result = await dialog.showSaveDialog(mainWindow, {

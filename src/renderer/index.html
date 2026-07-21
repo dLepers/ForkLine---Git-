@@ -234,6 +234,27 @@
         <div class="dialog-actions"><button value="cancel" class="button">Annuler</button><button id="confirm-identity" value="default" class="button button-primary">Enregistrer</button></div>
       </form>
     </dialog>
+    <dialog id="ai-settings-dialog" class="ai-settings-dialog">
+      <form method="dialog">
+        <p class="eyebrow">ANALYSE IA</p><h3>Configurer l’analyse des commits</h3>
+        <p id="ai-status" class="ai-status">Vérification du fournisseur…</p>
+        <label for="ai-provider">Fournisseur</label><select id="ai-provider"><option value="codex">Codex (compte ChatGPT)</option><option value="openai">OpenAI API</option><option value="anthropic">Anthropic Claude</option><option value="gemini">Google Gemini</option><option value="openai-compatible">API compatible OpenAI</option></select>
+        <div id="ai-api-fields">
+          <label for="ai-base-url">URL de l’API</label><input id="ai-base-url" type="url" autocomplete="off" placeholder="https://api.example.com/v1">
+          <label for="ai-api-key">Clé API</label><input id="ai-api-key" type="password" autocomplete="new-password" placeholder="Laisser vide pour conserver la clé actuelle">
+          <label class="dialog-check"><input id="ai-persist-key" type="checkbox" checked><span>Conserver la clé de façon sécurisée</span></label>
+          <label class="dialog-check"><input id="ai-remove-key" type="checkbox"><span>Supprimer la clé enregistrée</span></label>
+        </div>
+        <label for="ai-model">Modèle</label><input id="ai-model" list="ai-model-list" autocomplete="off" placeholder="Modèle recommandé ou identifiant libre"><datalist id="ai-model-list"></datalist>
+        <p id="ai-model-description" class="dialog-help">Vous pouvez saisir librement un modèle absent du catalogue.</p>
+        <div class="ai-settings-grid"><div><label for="ai-reasoning">Niveau de détail</label><select id="ai-reasoning"><option value="low">Faible</option><option value="medium">Moyen</option><option value="high">Élevé</option><option value="xhigh">Très élevé</option></select></div><div><label for="ai-max-tokens">Sortie maximale</label><input id="ai-max-tokens" type="number" min="500" max="32000" step="500"></div><div><label for="ai-timeout">Délai (secondes)</label><input id="ai-timeout" type="number" min="10" max="600"></div><div><label for="ai-language">Langue</label><input id="ai-language" autocomplete="off"></div></div>
+        <label for="ai-custom-instructions">Consignes personnalisées</label><textarea id="ai-custom-instructions" rows="3" maxlength="4000" placeholder="Contexte métier, format souhaité, points à surveiller…"></textarea>
+        <label class="dialog-check"><input id="ai-save-analyses" type="checkbox" checked><span>Enregistrer les analyses localement</span></label>
+        <p id="ai-privacy-note" class="ai-privacy-note">Forkline transmet le message, les métadonnées et le diff du commit au fournisseur choisi. Sa politique de conservation s’applique.</p>
+        <button id="clear-ai-analyses" type="button" class="button button-small danger">Effacer toutes les analyses enregistrées</button>
+        <div class="dialog-actions"><button value="cancel" class="button">Annuler</button><button id="confirm-ai-settings" value="default" class="button button-primary">Enregistrer</button></div>
+      </form>
+    </dialog>
     <script src="graph-layout.js"></script>
     <script src="../branch-sync.js"></script>
     <script src="app.js"></script>

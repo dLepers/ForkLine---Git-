@@ -21,6 +21,8 @@ const state = {
   assignedProfileId: null,
   profileAssignmentType: null,
   externalEditorCommand: '',
+  aiConfiguration: null,
+  activeCommitAnalysis: null,
   branchCreation: { startPoint: null, sourceLabel: '' },
   branchRename: { originalName: null, pending: false },
   tagCreation: { revision: null, sourceLabel: '', pending: false },
@@ -160,6 +162,7 @@ function hasActiveConflicts(snapshot = state.snapshot) {
 function applySnapshot(snapshot, options = {}) {
   if (snapshot.repositoryRevision && state.snapshot?.repositoryRevision >= snapshot.repositoryRevision) return false;
   const conflictWasVisible = !$('#conflict-detail').classList.contains('hidden');
+  if (state.snapshot?.repository && state.snapshot.repository !== snapshot.repository) state.activeCommitAnalysis = null;
   state.snapshot = snapshot;
   state.compareSelection = state.compareSelection.filter((hash) => snapshot.commits.some((commit) => commit.hash === hash)).slice(-2);
   const repoName = basename(snapshot.repository);
@@ -1752,9 +1755,115 @@ function showCommitDetails(commit) {
     <h3>${escapeHtml(commit.subject)}</h3>
     <dl class="detail-grid"><dt>Auteur</dt><dd>${escapeHtml(commit.author)}<br>${escapeHtml(commit.email)}</dd><dt>Date</dt><dd>${escapeHtml(new Date(commit.date).toLocaleString('fr'))}</dd><dt>Parent${commit.parents.length > 1 ? 's' : ''}</dt><dd>${commit.parents.map((parent) => parent.slice(0, 10)).join(', ') || 'Commit initial'}</dd></dl>
     <div class="detail-refs">${commit.refs.map((ref) => `<span class="detail-ref">${escapeHtml(ref)}</span>`).join('')}</div>
+    <section class="commit-ai-section"><div class="commit-ai-heading"><p class="eyebrow">ANALYSE IA</p><button id="open-ai-settings" type="button" class="icon-button" title="Configurer l’analyse IA" aria-label="Configurer l’analyse IA">⚙</button></div><div id="commit-ai-content" class="commit-ai-content"><span>Recherche d’une analyse enregistrée…</span></div></section>
     <section class="commit-files-section"><p class="eyebrow">FICHIERS</p><div id="commit-files" class="commit-files"><span>Chargement…</span></div></section>`;
   showInspector('#commit-detail');
+  $('#open-ai-settings').addEventListener('click', openAiSettings);
+  loadCommitAnalysis(commit);
   loadCommitFiles(commit);
+}
+
+function commitAnalysisList(title, items, className = '') {
+  if (!items?.length) return '';
+  return `<section class="commit-ai-group ${className}"><h4>${escapeHtml(title)}</h4><ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></section>`;
+}
+
+function renderCommitAnalysis(commit, analysis) {
+  const container = $('#commit-ai-content');
+  if (!container || state.selectedCommit !== commit.hash) return;
+  if (!analysis) {
+    container.innerHTML = `<p class="commit-ai-empty">L’IA configurée peut expliquer les fonctionnalités, les modifications techniques et les risques de ce commit à partir de son diff.</p><button id="analyze-commit" type="button" class="button button-primary">Analyser ce commit</button>`;
+  } else {
+    const files = analysis.files?.length ? `<section class="commit-ai-group"><h4>Fichiers clés</h4><dl class="commit-ai-files">${analysis.files.map((file) => `<dt>${escapeHtml(file.path)}</dt><dd>${escapeHtml(file.change)}</dd>`).join('')}</dl></section>` : '';
+    container.innerHTML = `<p class="commit-ai-summary">${escapeHtml(analysis.summary)}</p>
+      ${commitAnalysisList('Fonctionnalités et comportements', analysis.functionalChanges)}
+      ${commitAnalysisList('Modifications techniques', analysis.technicalChanges)}
+      ${commitAnalysisList('Impacts', analysis.impacts)}
+      ${commitAnalysisList('Risques et limites', analysis.risks, 'warning')}
+      ${commitAnalysisList('Tests', analysis.tests)}${files}
+      <p class="commit-ai-meta">${escapeHtml(analysis.provider || 'Codex')} · ${escapeHtml(analysis.model)} · détail ${escapeHtml(analysis.reasoningEffort)} · ${escapeHtml(new Date(analysis.createdAt).toLocaleString('fr'))}${analysis.truncated ? ' · diff tronqué' : ''}${analysis.saved ? ' · enregistré localement' : ' · non enregistré'}</p>
+      <div class="commit-ai-actions"><button id="analyze-commit" type="button" class="button button-small">Réanalyser</button>${analysis.saved ? '<button id="delete-commit-analysis" type="button" class="button button-small danger">Supprimer l’analyse</button>' : ''}</div>`;
+  }
+  $('#analyze-commit').addEventListener('click', () => analyzeCommitWithAi(commit));
+  $('#delete-commit-analysis')?.addEventListener('click', () => deleteCommitAnalysis(commit));
+}
+
+async function loadCommitAnalysis(commit) {
+  if (state.activeCommitAnalysis?.commitHash === commit.hash) return renderCommitAnalysis(commit, state.activeCommitAnalysis);
+  const analysis = await window.forkline.commitAnalysis(commit.hash).then(unwrap).catch((error) => {
+    toast(error.message, true);
+    return null;
+  });
+  if (state.selectedCommit !== commit.hash) return;
+  state.activeCommitAnalysis = analysis;
+  renderCommitAnalysis(commit, analysis);
+}
+
+async function analyzeCommitWithAi(commit) {
+  const previous = state.activeCommitAnalysis?.commitHash === commit.hash ? state.activeCommitAnalysis : null;
+  $('#commit-ai-content').innerHTML = '<div class="commit-ai-loading"><span></span><strong>L’IA analyse le diff…</strong><small>Cette opération peut prendre quelques instants.</small></div>';
+  const analysis = await action('', () => window.forkline.analyzeCommit(commit.hash).then(unwrap));
+  if (state.selectedCommit !== commit.hash) return;
+  if (!analysis) return renderCommitAnalysis(commit, previous);
+  state.activeCommitAnalysis = analysis;
+  renderCommitAnalysis(commit, analysis);
+}
+
+async function deleteCommitAnalysis(commit) {
+  if (!window.confirm('Supprimer l’analyse IA enregistrée pour ce commit ?')) return;
+  const deleted = await action('', () => window.forkline.deleteCommitAnalysis(commit.hash).then(unwrap));
+  if (!deleted || state.selectedCommit !== commit.hash) return;
+  state.activeCommitAnalysis = null;
+  renderCommitAnalysis(commit, null);
+  toast('Analyse IA supprimée');
+}
+
+function updateAiModelDescription() {
+  const model = state.aiConfiguration?.models.find((entry) => entry.id === $('#ai-model').value);
+  $('#ai-model-description').textContent = model?.description || 'Vous pouvez saisir librement un identifiant de modèle absent du catalogue.';
+}
+
+function updateAiReasoningOptions(preferredValue = $('#ai-reasoning').value) {
+  const model = state.aiConfiguration?.models.find((entry) => entry.id === $('#ai-model').value);
+  const supported = model?.reasoningEfforts?.length ? model.reasoningEfforts : ['low', 'medium', 'high', 'xhigh'];
+  const labels = { low: 'Faible — plus rapide', medium: 'Moyen — équilibré', high: 'Élevé — plus approfondi', xhigh: 'Très élevé — commits complexes' };
+  $('#ai-reasoning').innerHTML = supported.map((effort) => `<option value="${effort}">${labels[effort]}</option>`).join('');
+  $('#ai-reasoning').value = supported.includes(preferredValue) ? preferredValue : (model?.defaultReasoningEffort || supported[0]);
+}
+
+function updateAiProviderFields() {
+  const provider = $('#ai-provider').value;
+  $('#ai-api-fields').classList.toggle('hidden', provider === 'codex');
+  $('#ai-privacy-note').textContent = provider === 'codex'
+    ? 'Codex utilise la connexion ChatGPT du CLI, lancé en lecture seule et sans session d’analyse persistante. Les règles du compte OpenAI restent applicables.'
+    : 'Forkline transmet le message, les métadonnées et le diff du commit au fournisseur choisi. Sa politique de conservation et sa facturation API s’appliquent.';
+}
+
+async function openAiSettings() {
+  $('#ai-settings-dialog').showModal();
+  const configuration = await action('', () => window.forkline.aiConfiguration().then(unwrap));
+  if (!configuration || !$('#ai-settings-dialog').open) return;
+  state.aiConfiguration = configuration;
+  const selectedModel = configuration.settings.model;
+  $('#ai-model-list').innerHTML = configuration.models.map((model) => `<option value="${escapeHtml(model.id)}">${escapeHtml(model.name)}</option>`).join('');
+  $('#ai-provider').value = configuration.settings.provider;
+  $('#ai-base-url').value = configuration.settings.baseUrl;
+  $('#ai-model').value = selectedModel;
+  $('#ai-max-tokens').value = configuration.settings.maxOutputTokens;
+  $('#ai-timeout').value = configuration.settings.timeoutSeconds;
+  $('#ai-language').value = configuration.settings.language;
+  $('#ai-custom-instructions').value = configuration.settings.customInstructions;
+  $('#ai-save-analyses').checked = configuration.settings.saveAnalyses;
+  $('#ai-persist-key').checked = configuration.securePersistenceAvailable;
+  $('#ai-persist-key').disabled = !configuration.securePersistenceAvailable;
+  $('#ai-remove-key').checked = false;
+  $('#ai-api-key').value = '';
+  $('#ai-api-key').placeholder = configuration.hasApiKey ? 'Clé déjà configurée — laisser vide pour la conserver' : 'Saisir la clé API';
+  $('#ai-status').textContent = `${configuration.status.label}${configuration.securePersistenceAvailable ? '' : ' · stockage sûr indisponible : clé conservée pour cette session uniquement'}`;
+  $('#ai-status').classList.toggle('error', !configuration.status.authenticated);
+  updateAiReasoningOptions(configuration.settings.reasoningEffort);
+  updateAiProviderFields();
+  updateAiModelDescription();
 }
 
 async function loadCommitFiles(commit) {
@@ -2572,6 +2681,42 @@ $('#identity-profile').addEventListener('change', () => {
     $('#identity-remote-pattern').value = '';
   }
   $('#delete-identity-profile').disabled = !profile;
+});
+$('#ai-provider').addEventListener('change', () => {
+  const defaults = { openai: 'https://api.openai.com/v1', anthropic: 'https://api.anthropic.com/v1', gemini: 'https://generativelanguage.googleapis.com/v1beta' };
+  $('#ai-base-url').value = defaults[$('#ai-provider').value] || '';
+  $('#ai-model').value = '';
+  $('#ai-api-key').value = '';
+  $('#ai-remove-key').checked = false;
+  updateAiProviderFields();
+});
+$('#ai-model').addEventListener('input', () => {
+  updateAiModelDescription();
+  updateAiReasoningOptions();
+});
+$('#confirm-ai-settings').addEventListener('click', async (event) => {
+  event.preventDefault();
+  const result = await action('', () => window.forkline.setAiSettings({
+    provider: $('#ai-provider').value, baseUrl: $('#ai-base-url').value, apiKey: $('#ai-api-key').value,
+    persistApiKey: $('#ai-persist-key').checked, removeApiKey: $('#ai-remove-key').checked,
+    model: $('#ai-model').value, reasoningEffort: $('#ai-reasoning').value,
+    maxOutputTokens: $('#ai-max-tokens').value, timeoutSeconds: $('#ai-timeout').value,
+    language: $('#ai-language').value, customInstructions: $('#ai-custom-instructions').value,
+    saveAnalyses: $('#ai-save-analyses').checked,
+  }).then(unwrap));
+  if (!result) return;
+  state.aiConfiguration.settings = result.settings;
+  $('#ai-settings-dialog').close();
+  toast('Paramètres d’analyse IA enregistrés');
+});
+$('#clear-ai-analyses').addEventListener('click', async () => {
+  if (!window.confirm('Effacer toutes les analyses IA enregistrées par Forkline ?')) return;
+  const cleared = await action('', () => window.forkline.clearAiAnalyses().then(unwrap));
+  if (!cleared) return;
+  state.activeCommitAnalysis = null;
+  const commit = state.snapshot?.commits.find((entry) => entry.hash === state.selectedCommit);
+  if (commit) renderCommitAnalysis(commit, null);
+  toast('Analyses IA enregistrées effacées');
 });
 $('#save-identity-profile').addEventListener('click', async () => {
   const label = window.prompt('Nom du profil :', state.gitProfiles.find((entry) => entry.id === $('#identity-profile').value)?.label || 'Profil Git');

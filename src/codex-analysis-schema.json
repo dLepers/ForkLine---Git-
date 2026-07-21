@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "functionalChanges", "technicalChanges", "impacts", "risks", "tests", "files"],
+  "properties": {
+    "summary": { "type": "string", "maxLength": 1200 },
+    "functionalChanges": {
+      "type": "array",
+      "maxItems": 12,
+      "items": { "type": "string", "maxLength": 500 }
+    },
+    "technicalChanges": {
+      "type": "array",
+      "maxItems": 12,
+      "items": { "type": "string", "maxLength": 500 }
+    },
+    "impacts": {
+      "type": "array",
+      "maxItems": 10,
+      "items": { "type": "string", "maxLength": 500 }
+    },
+    "risks": {
+      "type": "array",
+      "maxItems": 10,
+      "items": { "type": "string", "maxLength": 500 }
+    },
+    "tests": {
+      "type": "array",
+      "maxItems": 10,
+      "items": { "type": "string", "maxLength": 500 }
+    },
+    "files": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "change"],
+        "properties": {
+          "path": { "type": "string", "maxLength": 500 },
+          "change": { "type": "string", "maxLength": 500 }
+        }
+      }
+    }
+  }
+}

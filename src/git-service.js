@@ -1328,6 +1328,11 @@ class GitService {
     return this.run(['show', '--format=', '--no-ext-diff', '--unified=4', revision, '--', filePath]);
   }
 
+  async commitAnalysisData(revision) {
+    await this.validateRevision(revision);
+    return this.run(['show', '--first-parent', '--format=fuller', '--no-ext-diff', '--find-renames', '--find-copies', '--stat', '--patch', '--unified=3', revision]);
+  }
+
   async createCommitPatch(revisions) {
     const values = [...new Set(Array.isArray(revisions) ? revisions : [revisions])];
     if (!values.length || values.length > 100) throw new GitError('Sélection de commits invalide pour l’export du patch.');

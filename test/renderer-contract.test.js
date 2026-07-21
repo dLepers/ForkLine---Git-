@@ -10,6 +10,7 @@ const styles = read('src/renderer/styles.css');
 const html = read('src/renderer/index.html');
 const preload = read('src/preload.js');
 const main = read('src/main.js');
+const codexService = read('src/codex-service.js');
 
 function captures(source, expression) {
   return [...source.matchAll(expression)].map((match) => match[1]);
@@ -245,6 +246,36 @@ test('stash patch export stays in the main process and writes the selected file'
   assert.match(exportHandler, /dialog\.showSaveDialog\(mainWindow/);
   assert.match(exportHandler, /fs\.writeFile\(result\.filePath, patch, 'utf8'\)/);
   assert.match(preload, /exportStashPatch: \(ref, suggestedName\) => invoke\('repository:export-stash-patch'/);
+});
+
+test('commit details expose configurable, persistent multi-provider AI analysis', () => {
+  assert.match(html, /id="ai-settings-dialog"/);
+  assert.match(html, /id="ai-provider"/);
+  assert.match(html, /id="ai-model"/);
+  assert.match(html, /id="ai-api-key"/);
+  assert.match(html, /id="ai-base-url"/);
+  assert.match(html, /id="ai-custom-instructions"/);
+  assert.match(html, /id="ai-save-analyses"/);
+  assert.match(html, /id="clear-ai-analyses"/);
+  assert.match(renderer, /class="commit-ai-section"/);
+  assert.match(renderer, /window\.forkline\.commitAnalysis\(commit\.hash\)/);
+  assert.match(renderer, /window\.forkline\.analyzeCommit\(commit\.hash\)/);
+  assert.match(renderer, /window\.forkline\.deleteCommitAnalysis\(commit\.hash\)/);
+  assert.match(renderer, /window\.forkline\.setAiSettings/);
+  assert.match(renderer, /window\.forkline\.clearAiAnalyses/);
+  assert.match(renderer, /model\?\.reasoningEfforts\?\.length/);
+  assert.match(renderer, /state\.snapshot\?\.repository && state\.snapshot\.repository !== snapshot\.repository\) state\.activeCommitAnalysis = null/);
+  assert.match(preload, /aiConfiguration: \(\) => invoke\('application:ai-configuration'\)/);
+  assert.match(codexService, /'exec', '--sandbox', 'read-only', '--ephemeral'/);
+  assert.match(main, /codex-analyses\.json/);
+  assert.match(main, /settings\.saveAnalyses\) await analysisStore\(\)\.set/);
+});
+
+test('long commit and Codex details remain vertically scrollable', () => {
+  assert.match(styles, /\.workspace \{[^}]*grid-template-rows: minmax\(0, 1fr\)/);
+  assert.match(styles, /\.inspector \{[^}]*min-height: 0;[^}]*overflow: hidden/);
+  assert.match(styles, /\.commit-detail \{[^}]*height: 100%;[^}]*min-height: 0;[^}]*overflow-y: auto/);
+  assert.match(styles, /\.commit-detail \{[^}]*scrollbar-width: thin/);
 });
 
 test('branch context actions follow the selected branch state and update graph visibility', () => {
