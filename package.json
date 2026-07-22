@@ -9,7 +9,7 @@
     "debug": "DEBUG_GRAPH_LAYOUT=1 electron .",
     "dev": "electron . --dev",
     "test": "node --test",
-    "check": "node --check src/main.js && node --check src/preload.js && node --check src/git-service.js && node --check src/codex-service.js && node --check src/ai-service.js && node --check src/git-profile-rules.js && node --check src/command-line.js && node --check src/repository-watcher.js && node --check src/renderer/graph-layout.js && node --check src/renderer/app.js"
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/git-service.js && node --check src/codex-service.js && node --check src/ai-service.js && node --check src/git-profile-rules.js && node --check src/command-line.js && node --check src/repository-session.js && node --check src/repository-watcher.js && node --check src/renderer/graph-layout.js && node --check src/renderer/app.js"
   },
   "devDependencies": {
     "electron": "^41.7.1"

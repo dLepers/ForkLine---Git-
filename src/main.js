@@ -8,6 +8,7 @@ const { GitService } = require('./git-service');
 const { RepositoryWatcher } = require('./repository-watcher');
 const { selectGitProfile } = require('./git-profile-rules');
 const { parseCommandLine, launchDetached } = require('./command-line');
+const { normalizeRepositorySession, openRepositoryInSession, closeRepositoryInSession } = require('./repository-session');
 const { CodexAnalysisStore, CodexService, DEFAULT_CODEX_SETTINGS, normalizeCodexSettings } = require('./codex-service');
 const { AiSecretStore, CloudAiService, DEFAULT_AI_SETTINGS, PROVIDERS, normalizeAiSettings } = require('./ai-service');
 
@@ -22,6 +23,7 @@ let historyExpectedState = null;
 let historyMutation = false;
 let branchCreationTrace = null;
 let aiSecrets = null;
+const repositorySnapshots = new Map();
 function clearActionHistory() {
   undoQueue = [];
   redoStack = [];
@@ -38,6 +40,7 @@ function decorateSnapshot(snapshot) {
 }
 const repositoryWatcher = new RepositoryWatcher(git, (snapshot) => {
   decorateSnapshot(snapshot);
+  repositorySnapshots.set(snapshot.repository, structuredClone(snapshot));
   const windows = BrowserWindow.getAllWindows();
   if (branchCreationTrace) console.info('[branch-create] refresh event', JSON.stringify({ ...branchCreationTrace, repositoryRevision: snapshot.repositoryRevision, head: snapshot.head, branches: snapshot.branches.filter((branch) => !branch.remote).map((branch) => ({ name: branch.name, hash: branch.hash, current: branch.current })), views: windows.length }));
   windows.forEach((window) => window.webContents.send('repository:updated', snapshot));
@@ -54,7 +57,7 @@ function createWindow() {
     minHeight: 680,
     backgroundColor: '#171916',
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#171916', symbolColor: '#f4f0e6', height: 44 },
+    titleBarOverlay: { color: '#171916', symbolColor: '#f4f0e6', height: 34 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -161,11 +164,27 @@ async function runAiCommand(instruction) {
 
 async function rememberRepository(repository) {
   const state = await readApplicationState();
-  await writeApplicationState({ ...state, lastRepository: repository });
+  const session = openRepositoryInSession(normalizeRepositorySession(state), repository);
+  await writeApplicationState({
+    ...state,
+    openRepositories: session.repositories,
+    activeRepository: session.activeRepository,
+    lastRepository: session.activeRepository,
+  });
 }
 
-async function readRememberedRepository() {
-  return (await readApplicationState()).lastRepository || null;
+async function readRepositorySession() {
+  return normalizeRepositorySession(await readApplicationState());
+}
+
+async function writeRepositorySession(session) {
+  const state = await readApplicationState();
+  await writeApplicationState({
+    ...state,
+    openRepositories: session.repositories,
+    activeRepository: session.activeRepository,
+    lastRepository: session.activeRepository,
+  });
 }
 
 async function resolveExecutable(executable) {
@@ -209,7 +228,24 @@ async function openRepository(repository) {
   await rememberRepository(root);
   const snapshot = await git.snapshot();
   clearActionHistory();
-  return repositoryWatcher.start(root, decorateSnapshot(snapshot));
+  const initialSnapshot = await repositoryWatcher.start(root, decorateSnapshot(snapshot));
+  repositorySnapshots.set(root, structuredClone(initialSnapshot));
+  return initialSnapshot;
+}
+
+async function activateRepository(repository) {
+  const root = await git.open(repository);
+  const cachedSnapshot = repositorySnapshots.get(root);
+  if (!cachedSnapshot) return openRepository(root);
+  await rememberRepository(root);
+  clearActionHistory();
+  const initialSnapshot = await repositoryWatcher.start(root, decorateSnapshot(structuredClone(cachedSnapshot)), { deferFingerprint: true });
+  repositorySnapshots.set(root, structuredClone(initialSnapshot));
+  setImmediate(() => {
+    if (repositoryWatcher.repository !== root || git.repoPath !== root) return;
+    repositoryWatcher.refresh().catch((error) => console.warn(`[repository-tabs] Impossible d’actualiser ${root}: ${error.message}`));
+  });
+  return { ...initialSnapshot, activationCached: true };
 }
 
 async function selectParentDirectory(title) {
@@ -234,7 +270,9 @@ app.whenReady().then(() => {
     const root = await git.initialize(destination, initialBranch);
     clearActionHistory();
     await rememberRepository(root);
-    return repositoryWatcher.start(root, decorateSnapshot(await git.snapshot()));
+    const snapshot = await repositoryWatcher.start(root, decorateSnapshot(await git.snapshot()));
+    repositorySnapshots.set(root, structuredClone(snapshot));
+    return snapshot;
   });
   handle('repository:clone', async (source, directoryName) => {
     const parent = await selectParentDirectory('Choisir le dossier parent du clone');
@@ -244,11 +282,33 @@ app.whenReady().then(() => {
     const root = await git.clone(source, path.join(parent, cleanName));
     clearActionHistory();
     await rememberRepository(root);
-    return repositoryWatcher.start(root, decorateSnapshot(await git.snapshot()));
+    const snapshot = await repositoryWatcher.start(root, decorateSnapshot(await git.snapshot()));
+    repositorySnapshots.set(root, structuredClone(snapshot));
+    return snapshot;
   });
   handle('repository:restore', async () => {
-    const repository = await readRememberedRepository();
+    const repository = (await readRepositorySession()).activeRepository;
     return repository ? openRepository(repository) : null;
+  });
+  handle('repository:tabs', () => readRepositorySession());
+  handle('repository:activate', async (repository) => {
+    const session = await readRepositorySession();
+    if (!session.repositories.includes(repository)) throw new Error('Ce dépôt ne fait pas partie des onglets ouverts.');
+    return activateRepository(repository);
+  });
+  handle('repository:close', async (repository) => {
+    const current = await readRepositorySession();
+    const session = closeRepositoryInSession(current, repository);
+    await writeRepositorySession(session);
+    repositorySnapshots.delete(repository);
+    if (current.activeRepository !== repository) return { ...session, snapshot: null };
+    if (!session.activeRepository) {
+      repositoryWatcher.stop();
+      git.repoPath = null;
+      clearActionHistory();
+      return { ...session, snapshot: null };
+    }
+    return { ...session, snapshot: await activateRepository(session.activeRepository) };
   });
   handle('repository:refresh', () => repositoryWatcher.refresh());
   handle('repository:run-ai-command', async (instruction) => {

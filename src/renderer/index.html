@@ -11,7 +11,23 @@
     <div class="titlebar">
       <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
       <strong>Forkline</strong>
-      <div id="repo-title" class="repo-title">Aucun dépôt ouvert</div>
+      <nav class="application-menu-bar" aria-label="Menu de l’application">
+        <button id="application-file-menu-button" class="application-menu-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="application-file-menu">Fichier</button>
+        <div id="application-file-menu" class="application-file-menu hidden" role="menu" aria-label="Fichier">
+          <p>FICHIER</p>
+          <button type="button" role="menuitem" data-application-file-action="open"><span>⌘</span><span>Ouvrir un dépôt…</span><kbd>Ctrl+O</kbd></button>
+          <button type="button" role="menuitem" data-application-file-action="clone"><span>⇣</span><span>Cloner un dépôt…</span></button>
+          <button type="button" role="menuitem" data-application-file-action="initialize"><span>＋</span><span>Initialiser un dépôt…</span></button>
+        </div>
+        <button id="application-settings-menu-button" class="application-menu-button" type="button" title="Paramètres de Forkline (Ctrl+,)">Paramètres</button>
+      </nav>
+      <div class="window-drag-space" aria-hidden="true"></div>
+      <div id="repo-title" class="repo-title hidden">Aucun dépôt ouvert</div>
+    </div>
+    <div class="repository-tabbar">
+      <div id="repository-tabs" class="repository-tabs" role="tablist" aria-label="Dépôts ouverts"></div>
+      <button id="new-repository-tab" class="new-repository-tab" type="button" title="Ouvrir un dépôt (Ctrl+T)" aria-label="Ouvrir un nouveau dépôt">＋</button>
+      <div class="tabbar-drag-space" aria-hidden="true"></div>
     </div>
 
     <main id="welcome" class="welcome">
@@ -103,7 +119,6 @@
             <button id="toolbar-stash" class="tool-button" type="button" title="Mettre les modifications de côté">♨<span>Stash</span></button>
             <button id="toolbar-pop-stash" class="tool-button" type="button" title="Appliquer et supprimer le dernier stash" disabled>♨<span>Pop</span></button>
             <button id="open-terminal" class="tool-button terminal-button" type="button" title="Ouvrir un terminal dans le dépôt">›_<span>Terminal</span></button>
-            <button id="open-application-settings" class="tool-button" type="button" title="Paramètres de l’application">⚙<span>Paramètres</span></button>
             <button id="refresh" class="icon-button" type="button" title="Actualiser">↻</button>
           </div>
         </header>
@@ -254,8 +269,12 @@
           <label class="dialog-check"><input id="ai-persist-key" type="checkbox" checked><span>Conserver la clé de façon sécurisée</span></label>
           <label class="dialog-check"><input id="ai-remove-key" type="checkbox"><span>Supprimer la clé enregistrée</span></label>
         </div>
-        <label for="ai-model">Modèle</label><input id="ai-model" list="ai-model-list" autocomplete="off" placeholder="Modèle recommandé ou identifiant libre"><datalist id="ai-model-list"></datalist>
-        <p id="ai-model-description" class="dialog-help">Vous pouvez saisir librement un modèle absent du catalogue.</p>
+        <div class="ai-model-field">
+          <label for="ai-model">Modèle</label>
+          <input id="ai-model" list="ai-model-list" autocomplete="off" placeholder="Modèle recommandé ou identifiant libre" aria-describedby="ai-model-description">
+          <datalist id="ai-model-list"></datalist>
+          <p id="ai-model-description" class="dialog-help">Vous pouvez saisir librement un modèle absent du catalogue.</p>
+        </div>
         <div class="ai-settings-grid"><div><label for="ai-reasoning">Niveau de détail</label><select id="ai-reasoning"><option value="low">Faible</option><option value="medium">Moyen</option><option value="high">Élevé</option><option value="xhigh">Très élevé</option></select></div><div><label for="ai-max-tokens">Sortie maximale</label><input id="ai-max-tokens" type="number" min="500" max="32000" step="500"></div><div><label for="ai-timeout">Délai (secondes)</label><input id="ai-timeout" type="number" min="10" max="600"></div><div><label for="ai-language">Langue</label><input id="ai-language" autocomplete="off"></div></div>
         <label for="ai-custom-instructions">Consignes personnalisées</label><textarea id="ai-custom-instructions" rows="3" maxlength="4000" placeholder="Contexte métier, format souhaité, points à surveiller…"></textarea>
         <label class="dialog-check"><input id="ai-save-analyses" type="checkbox" checked><span>Enregistrer les analyses localement</span></label>

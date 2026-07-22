@@ -34,6 +34,16 @@ test('does not invalidate action history when the repository fingerprint is unch
   assert.equal(invalidations, 0);
 });
 
+test('contains a transient refresh failure triggered by an external change', async () => {
+  const watcher = new RepositoryWatcher({}, () => {});
+  watcher.repository = '/tmp/repository';
+  watcher.fingerprint = 'before';
+  watcher.readFingerprint = async () => 'after';
+  watcher.refresh = async () => { throw new Error('verrou Git temporaire'); };
+
+  assert.equal(await watcher.refreshIfChanged(), null);
+});
+
 test('refreshes the repository after a mutation that partially changes state then fails', async () => {
   const events = [];
   const watcher = new RepositoryWatcher({}, () => {}, {
@@ -55,4 +65,37 @@ test('refreshes the repository after a mutation that partially changes state the
 
   assert.deepEqual(events, ['start', 'mutation', 'refresh']);
   assert.equal(watcher.mutationDepth, 0);
+});
+
+test('starts a cached repository without blocking on its fingerprint', async () => {
+  let fingerprintReads = 0;
+  const watcher = new RepositoryWatcher({}, () => {});
+  watcher.readFingerprint = async () => {
+    fingerprintReads += 1;
+    return 'fingerprint';
+  };
+
+  const snapshot = await watcher.start('/tmp/cached-repository', { repository: '/tmp/cached-repository' }, { deferFingerprint: true });
+
+  assert.equal(fingerprintReads, 0);
+  assert.equal(snapshot.repository, '/tmp/cached-repository');
+  assert.equal(snapshot.repositoryRevision, 1);
+  watcher.stop();
+});
+
+test('does not publish a stale refresh after switching repositories', async () => {
+  let resolveSnapshot;
+  const published = [];
+  const git = {
+    snapshot: () => new Promise((resolve) => { resolveSnapshot = resolve; }),
+  };
+  const watcher = new RepositoryWatcher(git, (snapshot) => published.push(snapshot.repository));
+  watcher.repository = '/tmp/one';
+  const refresh = watcher.refresh();
+  watcher.stop();
+  watcher.repository = '/tmp/two';
+  resolveSnapshot({ repository: '/tmp/one' });
+
+  assert.equal(await refresh, null);
+  assert.deepEqual(published, []);
 });

@@ -34,6 +34,69 @@ test('all renderer calls are exposed by the preload bridge', () => {
   assert.deepEqual(missing, []);
 });
 
+test('repository tabs persist, switch and close through the main process boundary', () => {
+  assert.match(html, /id="repository-tabs"[^>]*role="tablist"/);
+  assert.match(html, /id="new-repository-tab"/);
+  assert.match(styles, /\.repository-tabs \{[^}]*overflow-x: auto/);
+  assert.match(styles, /\.repository-tab\.active \{[^}]*box-shadow: inset 0 2px var\(--accent\)/);
+  assert.match(main, /titleBarOverlay: \{[^}]*height: 34/);
+  assert.match(styles, /\.titlebar \{[^}]*height: 34px[^}]*-webkit-app-region: drag/);
+  assert.match(styles, /\.repository-tabbar \{[^}]*height: 34px[^}]*-webkit-app-region: drag/);
+  assert.match(styles, /\.repository-tabs \{[^}]*flex: 0 1 auto[^}]*-webkit-app-region: no-drag/);
+  assert.match(styles, /\.tabbar-drag-space \{[^}]*min-width: 80px[^}]*flex: 1 1 auto[^}]*-webkit-app-region: drag/);
+  assert.doesNotMatch(styles, /\.repository-tabs \{[^}]*flex: 1 1 auto/);
+  assert.match(styles, /\.toolbar \{[^}]*height: 48px/);
+  assert.match(renderer, /function renderRepositoryTabs\(\)/);
+  assert.match(renderer, /window\.forkline\.activateRepository\(repository\)/);
+  assert.match(renderer, /repositorySnapshots: new Map\(\)/);
+  assert.match(renderer, /const cachedSnapshot = state\.repositorySnapshots\.get\(repository\)/);
+  assert.match(renderer, /if \(cachedSnapshot\) \{[\s\S]*applySnapshot\(cachedSnapshot\)/);
+  assert.match(renderer, /cachedSnapshot && snapshot\.activationCached/);
+  assert.match(renderer, /state\.snapshot\.repositoryRevision \|\| 0\) <= \(snapshot\.repositoryRevision \|\| 0/);
+  assert.match(renderer, /window\.forkline\.closeRepository\(repository\)/);
+  assert.match(renderer, /event\.key\.toLowerCase\(\) === 't'/);
+  assert.match(renderer, /event\.key\.toLowerCase\(\) === 'w'/);
+  assert.match(renderer, /event\.ctrlKey && event\.key === 'Tab'/);
+  assert.match(preload, /repositoryTabs: \(\) => invoke\('repository:tabs'\)/);
+  assert.match(preload, /activateRepository: \(repository\) => invoke\('repository:activate', repository\)/);
+  assert.match(preload, /closeRepository: \(repository\) => invoke\('repository:close', repository\)/);
+  assert.match(main, /handle\('repository:tabs'/);
+  assert.match(main, /handle\('repository:activate'/);
+  assert.match(main, /const repositorySnapshots = new Map\(\)/);
+  assert.match(main, /repositoryWatcher\.start\(root, decorateSnapshot\(structuredClone\(cachedSnapshot\)\), \{ deferFingerprint: true \}\)/);
+  assert.match(main, /setImmediate\(\(\) => \{[\s\S]*repositoryWatcher\.refresh\(\)/);
+  assert.match(main, /handle\('repository:close'/);
+});
+
+test('the title bar exposes an extensible GitKraken-style application menu', () => {
+  assert.match(html, /class="application-menu-bar"[^>]*aria-label="Menu de l’application"/);
+  assert.match(html, /id="application-file-menu-button"[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"/);
+  assert.match(html, /data-application-file-action="open"/);
+  assert.match(html, /data-application-file-action="clone"/);
+  assert.match(html, /data-application-file-action="initialize"/);
+  assert.match(html, /id="application-settings-menu-button"/);
+  assert.match(styles, /\.application-menu-bar \{[^}]*-webkit-app-region: no-drag/);
+  assert.match(styles, /\.application-file-menu \{[^}]*position: absolute[^}]*z-index: 240/);
+  assert.match(renderer, /function toggleApplicationFileMenu\(\)/);
+  assert.match(renderer, /function runApplicationFileAction\(fileAction\)/);
+  assert.match(renderer, /fileAction === 'open'\) openRepository\(\)/);
+  assert.match(renderer, /fileAction === 'clone'\) cloneRepository\(\)/);
+  assert.match(renderer, /fileAction === 'initialize'\) initializeRepository\(\)/);
+  assert.match(renderer, /application-settings-menu-button'\)\.addEventListener\('click', \(\) => \{[\s\S]*closeApplicationFileMenu\(\);[\s\S]*openApplicationSettings\(\)/);
+  assert.match(renderer, /event\.key\.toLowerCase\(\) === 'o'/);
+  assert.match(renderer, /event\.key === ','/);
+  assert.match(renderer, /if \(!event\.target\.closest\('\.application-menu-bar'\)\) closeApplicationFileMenu\(\)/);
+});
+
+test('select and datalist pickers open from the complete field surface', () => {
+  assert.match(styles, /select, input\[list\] \{ cursor: pointer; \}/);
+  assert.match(renderer, /function openFieldPicker\(event\)/);
+  assert.match(renderer, /event\.target\.closest\('select, input\[list\]'\)/);
+  assert.match(renderer, /field\.disabled \|\| field\.readOnly \|\| typeof field\.showPicker !== 'function'/);
+  assert.match(renderer, /event\.preventDefault\(\);[\s\S]*field\.focus\(\{ preventScroll: true \}\);[\s\S]*field\.showPicker\(\)/);
+  assert.match(renderer, /document\.addEventListener\('pointerdown', openFieldPicker\)/);
+});
+
 test('the main workspace remains usable on narrow screens', () => {
   assert.match(main, /minWidth: 760/);
   assert.match(styles, /\.workspace \{[^}]*--sidebar-width: clamp\(190px, 17vw, 250px\);[^}]*--inspector-width: clamp\(270px, 34vw, 560px\);[^}]*grid-template-columns: var\(--sidebar-width\) minmax\(0, 1fr\) var\(--inspector-width\)/);
@@ -339,11 +402,15 @@ test('stash patch export stays in the main process and writes the selected file'
 test('commit details expose configurable, persistent multi-provider AI analysis', () => {
   assert.match(html, /id="application-settings-dialog"/);
   assert.match(html, /id="open-application-settings-welcome"/);
-  assert.match(html, /id="open-application-settings"/);
+  assert.match(html, /id="application-settings-menu-button"/);
+  assert.doesNotMatch(html, /id="open-application-settings"/);
   assert.match(html, /data-settings-panel="ai"/);
   assert.match(html, /partagée par toutes les fonctionnalités IA actuelles et futures/);
   assert.match(html, /id="ai-provider"/);
   assert.match(html, /id="ai-model"/);
+  assert.match(html, /class="ai-model-field">[\s\S]*id="ai-model"[^>]*aria-describedby="ai-model-description"[\s\S]*id="ai-model-description"/);
+  assert.match(styles, /\.ai-model-field \{ margin-bottom: 18px; \}/);
+  assert.match(styles, /\.ai-model-field \.dialog-help \{ margin: 6px 1px 0;/);
   assert.match(html, /id="ai-api-key"/);
   assert.match(html, /id="ai-base-url"/);
   assert.match(html, /id="ai-custom-instructions"/);
@@ -355,7 +422,7 @@ test('commit details expose configurable, persistent multi-provider AI analysis'
   assert.match(renderer, /window\.forkline\.deleteCommitAnalysis\(commit\.hash\)/);
   assert.match(renderer, /window\.forkline\.setAiSettings/);
   assert.match(renderer, /open-application-settings-welcome[^\n]*openApplicationSettings/);
-  assert.match(renderer, /open-application-settings'\)\.addEventListener\('click', openApplicationSettings/);
+  assert.doesNotMatch(renderer, /open-application-settings'\)\.addEventListener/);
   assert.doesNotMatch(renderer, /id="open-(?:stash-|wip-)?ai-settings"/);
   assert.match(renderer, /window\.forkline\.clearAiAnalyses/);
   assert.match(renderer, /ANALYSE IA DU STASH/);

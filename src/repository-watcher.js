@@ -18,12 +18,15 @@ class RepositoryWatcher {
     this.refreshPending = false;
     this.mutationDepth = 0;
     this.revision = 0;
+    this.generation = 0;
   }
 
-  async start(repository, initialSnapshot = null) {
+  async start(repository, initialSnapshot = null, options = {}) {
     this.stop();
     this.repository = repository;
-    this.fingerprint = await this.readFingerprint();
+    const generation = this.generation;
+    this.fingerprint = options.deferFingerprint ? null : await this.readFingerprint();
+    if (generation !== this.generation || this.repository !== repository) return null;
     if (initialSnapshot) initialSnapshot.repositoryRevision = ++this.revision;
 
     this.watchPath(repository);
@@ -33,6 +36,7 @@ class RepositoryWatcher {
   }
 
   stop() {
+    this.generation += 1;
     this.watchers.forEach((watcher) => watcher.close());
     this.watchers = [];
     clearTimeout(this.debounceTimer);
@@ -41,6 +45,7 @@ class RepositoryWatcher {
     this.pollTimer = null;
     this.repository = null;
     this.fingerprint = null;
+    this.refreshPromise = null;
     this.refreshPending = false;
   }
 
@@ -77,7 +82,7 @@ class RepositoryWatcher {
       const fingerprint = await this.readFingerprint();
       if (fingerprint !== this.fingerprint) {
         this.onExternalChange();
-        return this.refresh();
+        return await this.refresh();
       }
     } catch {
       // A transient lock during rebase/checkout will be retried on the next poll.
@@ -100,21 +105,28 @@ class RepositoryWatcher {
       return this.refreshPromise;
     }
 
-    this.refreshPromise = (async () => {
+    const repository = this.repository;
+    const generation = this.generation;
+    const refreshPromise = (async () => {
       const snapshot = await this.git.snapshot();
+      if (generation !== this.generation || this.repository !== repository) return null;
       snapshot.repositoryRevision = ++this.revision;
       this.fingerprint = await this.readFingerprint();
+      if (generation !== this.generation || this.repository !== repository) return null;
       this.publish(snapshot);
       return snapshot;
     })();
+    this.refreshPromise = refreshPromise;
 
     try {
-      return await this.refreshPromise;
+      return await refreshPromise;
     } finally {
-      this.refreshPromise = null;
-      if (this.refreshPending && !this.mutationDepth) {
-        this.refreshPending = false;
-        this.schedule();
+      if (this.refreshPromise === refreshPromise) {
+        this.refreshPromise = null;
+        if (this.refreshPending && !this.mutationDepth) {
+          this.refreshPending = false;
+          this.schedule();
+        }
       }
     }
   }

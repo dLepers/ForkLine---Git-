@@ -30,6 +30,10 @@ const state = {
   branchRename: { originalName: null, pending: false },
   tagCreation: { revision: null, sourceLabel: '', pending: false },
   upstreamAssignment: { branch: null, mode: 'track', pushOptions: {}, pending: false },
+  repositoryTabs: [],
+  activeRepository: null,
+  repositoryUiContexts: new Map(),
+  repositorySnapshots: new Map(),
 };
 
 function loadHiddenStashHashes() {
@@ -237,6 +241,131 @@ function basename(filePath) {
   return filePath.replace(/\\/g, '/').split('/').pop();
 }
 
+function saveRepositoryUiContext() {
+  const repository = state.snapshot?.repository;
+  if (!repository) return;
+  state.repositoryUiContexts.set(repository, {
+    view: state.view,
+    historyQuery: state.historyQuery,
+    historyScroll: $('#history-view')?.scrollTop || 0,
+  });
+}
+
+function resetRepositoryUiSelection() {
+  state.selectedFile = null;
+  state.selectedCommit = null;
+  state.selectedStash = null;
+  state.compareSelection = [];
+  state.activeCommitAnalysis = null;
+  state.activeStashAnalysis = null;
+  state.activeWipAnalysis = null;
+  state.soloBranchName = null;
+}
+
+function restoreRepositoryUiContext(repository) {
+  const context = state.repositoryUiContexts.get(repository) || { view: 'history', historyQuery: '', historyScroll: 0 };
+  state.historyQuery = context.historyQuery;
+  if ($('#history-search')) $('#history-search').value = context.historyQuery;
+  setView(context.view);
+  renderCommits();
+  requestAnimationFrame(() => { if ($('#history-view')) $('#history-view').scrollTop = context.historyScroll; });
+}
+
+function renderRepositoryTabs() {
+  const activeRepository = state.snapshot?.repository || state.activeRepository;
+  $('#repository-tabs').innerHTML = state.repositoryTabs.map((repository) => {
+    const active = repository === activeRepository;
+    const dirty = active && Boolean(state.snapshot?.status?.files?.length);
+    const name = basename(repository);
+    return `<div class="repository-tab${active ? ' active' : ''}${dirty ? ' dirty' : ''}" role="presentation" data-repository="${escapeHtml(repository)}">
+      <button class="repository-tab-main" type="button" role="tab" aria-selected="${active}" title="${escapeHtml(repository)}"><span class="repository-tab-glyph" aria-hidden="true"></span><strong>${escapeHtml(name)}</strong></button>
+      <button class="repository-tab-close" type="button" title="Fermer ${escapeHtml(name)}" aria-label="Fermer ${escapeHtml(name)}">×</button>
+    </div>`;
+  }).join('');
+  $$('.repository-tab-main').forEach((button) => button.addEventListener('click', () => switchRepositoryTab(button.closest('.repository-tab').dataset.repository)));
+  $$('.repository-tab-close').forEach((button) => button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    closeRepositoryTab(button.closest('.repository-tab').dataset.repository);
+  }));
+  $$('.repository-tab').forEach((tab) => tab.addEventListener('auxclick', (event) => {
+    if (event.button === 1) closeRepositoryTab(tab.dataset.repository);
+  }));
+  $('.repository-tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+async function refreshRepositoryTabs() {
+  const session = await window.forkline.repositoryTabs().then(unwrap);
+  state.repositoryTabs = session.repositories;
+  state.activeRepository = session.activeRepository;
+  renderRepositoryTabs();
+  return session;
+}
+
+function showRepositoryWelcome() {
+  state.snapshot = null;
+  state.activeRepository = null;
+  resetRepositoryUiSelection();
+  $('#workspace').classList.add('hidden');
+  $('#welcome').classList.remove('hidden');
+  $('#repo-title').textContent = 'Aucun dépôt ouvert';
+  $('#restore-status').textContent = 'Ouvrez un dépôt pour commencer.';
+  renderRepositoryTabs();
+}
+
+async function switchRepositoryTab(repository) {
+  if (!repository || repository === state.snapshot?.repository || state.busy) return;
+  const previousRepository = state.snapshot?.repository;
+  saveRepositoryUiContext();
+  const cachedSnapshot = state.repositorySnapshots.get(repository);
+  if (cachedSnapshot) {
+    resetRepositoryUiSelection();
+    applySnapshot(cachedSnapshot);
+    restoreRepositoryUiContext(repository);
+  }
+  const snapshot = await action('', () => window.forkline.activateRepository(repository).then(unwrap));
+  if (!snapshot) {
+    const previousSnapshot = state.repositorySnapshots.get(previousRepository);
+    if (previousSnapshot) {
+      resetRepositoryUiSelection();
+      applySnapshot(previousSnapshot);
+      restoreRepositoryUiContext(previousRepository);
+    }
+    return;
+  }
+  if (cachedSnapshot && snapshot.activationCached) {
+    if (state.snapshot?.repository !== repository || (state.snapshot.repositoryRevision || 0) <= (snapshot.repositoryRevision || 0)) {
+      state.snapshot = snapshot;
+      state.repositorySnapshots.set(repository, snapshot);
+    }
+    renderRepositoryTabs();
+  } else {
+    resetRepositoryUiSelection();
+    applySnapshot(snapshot);
+    restoreRepositoryUiContext(snapshot.repository);
+  }
+  await refreshRepositoryTabs();
+}
+
+async function closeRepositoryTab(repository) {
+  if (!repository || state.busy) return;
+  const wasActive = repository === state.snapshot?.repository;
+  if (wasActive) saveRepositoryUiContext();
+  const result = await action('', () => window.forkline.closeRepository(repository).then(unwrap));
+  if (!result) return;
+  state.repositoryUiContexts.delete(repository);
+  state.repositorySnapshots.delete(repository);
+  state.repositoryTabs = result.repositories;
+  state.activeRepository = result.activeRepository;
+  if (wasActive && result.snapshot) {
+    resetRepositoryUiSelection();
+    applySnapshot(result.snapshot);
+    restoreRepositoryUiContext(result.snapshot.repository);
+  } else if (wasActive) {
+    showRepositoryWelcome();
+  }
+  renderRepositoryTabs();
+}
+
 function relativeTime(dateValue) {
   const seconds = Math.round((new Date(dateValue).getTime() - Date.now()) / 1000);
   const formatter = new Intl.RelativeTimeFormat('fr', { numeric: 'auto' });
@@ -260,7 +389,7 @@ function hasActiveConflicts(snapshot = state.snapshot) {
 }
 
 function applySnapshot(snapshot, options = {}) {
-  if (snapshot.repositoryRevision && state.snapshot?.repositoryRevision >= snapshot.repositoryRevision) return false;
+  if (snapshot.repositoryRevision && state.snapshot?.repository === snapshot.repository && state.snapshot?.repositoryRevision >= snapshot.repositoryRevision) return false;
   const conflictWasVisible = !$('#conflict-detail').classList.contains('hidden');
   const worktreeWasVisible = !$('#worktree-detail').classList.contains('hidden');
   if (state.snapshot?.repository && state.snapshot.repository !== snapshot.repository) {
@@ -269,6 +398,7 @@ function applySnapshot(snapshot, options = {}) {
     state.activeWipAnalysis = null;
   }
   state.snapshot = snapshot;
+  state.repositorySnapshots.set(snapshot.repository, snapshot);
   if (!snapshot.status.files.length && !snapshot.operation) {
     state.selectedFile = null;
     state.activeWipAnalysis = null;
@@ -308,6 +438,7 @@ function applySnapshot(snapshot, options = {}) {
   else if (worktreeWasVisible && !snapshot.status.files.length && !options.preserveInspector) showInspector('#inspector-empty');
   $('#welcome').classList.add('hidden');
   $('#workspace').classList.remove('hidden');
+  renderRepositoryTabs();
   applyWorkspaceColumnWidths();
   return true;
 }
@@ -2677,8 +2808,15 @@ async function handleRepositoryUpdate(snapshot) {
 }
 
 async function openRepository() {
+  const previousRepository = state.snapshot?.repository;
+  saveRepositoryUiContext();
   const result = await action('', () => window.forkline.chooseRepository().then(unwrap));
-  if (result) applySnapshot(result);
+  if (result) {
+    if (result.repository !== previousRepository) resetRepositoryUiSelection();
+    applySnapshot(result);
+    await refreshRepositoryTabs();
+    restoreRepositoryUiContext(result.repository);
+  }
 }
 
 async function cloneRepository() {
@@ -2687,15 +2825,27 @@ async function cloneRepository() {
   const inferred = source.trim().replace(/[\\/]$/, '').split(/[\\/]/).pop().replace(/\.git$/, '') || 'depot';
   const directoryName = window.prompt('Nom du dossier de destination :', inferred);
   if (!directoryName?.trim()) return;
+  saveRepositoryUiContext();
   const result = await action('', () => window.forkline.cloneRepository(source.trim(), directoryName.trim()).then(unwrap));
-  if (result) applySnapshot(result);
+  if (result) {
+    resetRepositoryUiSelection();
+    applySnapshot(result);
+    await refreshRepositoryTabs();
+    restoreRepositoryUiContext(result.repository);
+  }
 }
 
 async function initializeRepository() {
   const branch = window.prompt('Nom de la branche initiale :', 'main');
   if (!branch?.trim()) return;
+  saveRepositoryUiContext();
   const result = await action('', () => window.forkline.initializeRepository(branch.trim()).then(unwrap));
-  if (result) applySnapshot(result);
+  if (result) {
+    resetRepositoryUiSelection();
+    applySnapshot(result);
+    await refreshRepositoryTabs();
+    restoreRepositoryUiContext(result.repository);
+  }
 }
 
 function setView(view) {
@@ -2707,30 +2857,103 @@ function setView(view) {
   $('#view-title').textContent = view === 'history' ? 'Historique du dépôt' : 'Préparer un commit';
 }
 
+function closeApplicationFileMenu() {
+  $('#application-file-menu').classList.add('hidden');
+  $('#application-file-menu-button').setAttribute('aria-expanded', 'false');
+}
+
+function toggleApplicationFileMenu() {
+  const menu = $('#application-file-menu');
+  const opening = menu.classList.contains('hidden');
+  menu.classList.toggle('hidden', !opening);
+  $('#application-file-menu-button').setAttribute('aria-expanded', String(opening));
+  if (opening) menu.querySelector('[role="menuitem"]')?.focus();
+}
+
+function runApplicationFileAction(fileAction) {
+  closeApplicationFileMenu();
+  if (fileAction === 'open') openRepository();
+  else if (fileAction === 'clone') cloneRepository();
+  else if (fileAction === 'initialize') initializeRepository();
+}
+
+function openFieldPicker(event) {
+  if (event.button !== 0 || !(event.target instanceof Element)) return;
+  const field = event.target.closest('select, input[list]');
+  if (!field || field.disabled || field.readOnly || typeof field.showPicker !== 'function') return;
+  event.preventDefault();
+  field.focus({ preventScroll: true });
+  try {
+    field.showPicker();
+  } catch {
+    // Chromium keeps the native behavior when a picker is unavailable in this context.
+  }
+}
+
 $('#open-repo-welcome').addEventListener('click', openRepository);
+$('#new-repository-tab').addEventListener('click', openRepository);
 $('#clone-repo-welcome').addEventListener('click', cloneRepository);
 $('#init-repo-welcome').addEventListener('click', initializeRepository);
 $('#open-application-settings-welcome').addEventListener('click', openApplicationSettings);
+$('#application-file-menu-button').addEventListener('click', toggleApplicationFileMenu);
+$('#application-settings-menu-button').addEventListener('click', () => {
+  closeApplicationFileMenu();
+  openApplicationSettings();
+});
+$$('[data-application-file-action]').forEach((button) => button.addEventListener('click', () => runApplicationFileAction(button.dataset.applicationFileAction)));
+document.addEventListener('pointerdown', openFieldPicker);
 document.addEventListener('click', (event) => {
+  if (!event.target.closest('.application-menu-bar')) closeApplicationFileMenu();
   if (!event.target.closest('#branch-context-menu')) closeBranchContextMenu();
   if (!event.target.closest('#commit-context-menu')) closeCommitContextMenu();
   if (!event.target.closest('#stash-context-menu')) closeStashContextMenu();
 });
 document.addEventListener('keydown', (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o') {
+    event.preventDefault();
+    closeApplicationFileMenu();
+    openRepository();
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key === ',') {
+    event.preventDefault();
+    closeApplicationFileMenu();
+    openApplicationSettings();
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 't') {
+    event.preventDefault();
+    openRepository();
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'w' && state.snapshot?.repository) {
+    event.preventDefault();
+    closeRepositoryTab(state.snapshot.repository);
+    return;
+  }
+  if (event.ctrlKey && event.key === 'Tab' && state.repositoryTabs.length > 1) {
+    event.preventDefault();
+    const currentIndex = state.repositoryTabs.indexOf(state.snapshot?.repository);
+    const direction = event.shiftKey ? -1 : 1;
+    const nextIndex = (currentIndex + direction + state.repositoryTabs.length) % state.repositoryTabs.length;
+    switchRepositoryTab(state.repositoryTabs[nextIndex]);
+    return;
+  }
   if (event.key === 'Escape') {
+    closeApplicationFileMenu();
     closeBranchContextMenu();
     closeCommitContextMenu();
     closeStashContextMenu();
   }
 });
 window.addEventListener('blur', () => {
+  closeApplicationFileMenu();
   closeBranchContextMenu();
   closeCommitContextMenu();
   closeStashContextMenu();
 });
 $('#open-repo').addEventListener('click', openRepository);
 $('#toolbar-repository').addEventListener('click', openRepository);
-$('#open-application-settings').addEventListener('click', openApplicationSettings);
 $$('[data-settings-panel]').forEach((button) => button.addEventListener('click', () => selectApplicationSettingsPanel(button.dataset.settingsPanel)));
 $('#refresh').addEventListener('click', () => refresh());
 async function performUndo(count = 1) {
@@ -3183,6 +3406,12 @@ bindWorkspaceColumnResizers();
 
 (async () => {
   const result = await action('', () => window.forkline.restoreRepository().then(unwrap));
-  if (result) applySnapshot(result);
-  else $('#restore-status').textContent = 'Choisissez un dossier contenant un dépôt Git.';
+  await refreshRepositoryTabs();
+  if (result) {
+    applySnapshot(result);
+    restoreRepositoryUiContext(result.repository);
+  } else {
+    showRepositoryWelcome();
+    $('#restore-status').textContent = 'Choisissez un dossier contenant un dépôt Git.';
+  }
 })();
