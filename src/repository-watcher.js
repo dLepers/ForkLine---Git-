@@ -126,6 +126,11 @@ class RepositoryWatcher {
       const output = await callback();
       const snapshot = await this.refresh();
       return { output, snapshot };
+    } catch (error) {
+      // A command can change files or refs before failing (timeout, conflict,
+      // interrupted agent…). Publish the real repository state in that case.
+      await this.refresh().catch(() => null);
+      throw error;
     } finally {
       this.mutationDepth -= 1;
       this.refreshPending = false;

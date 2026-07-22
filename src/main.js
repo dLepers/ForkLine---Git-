@@ -124,6 +124,41 @@ async function aiSettings() {
   return normalizeAiSettings({ ...DEFAULT_AI_SETTINGS, ...legacy, provider: 'codex' });
 }
 
+async function analyzeGitData(data, cacheKey, metadata = {}) {
+  const settings = await aiSettings();
+  let result;
+  if (settings.provider === 'codex') {
+    const executable = await resolveExecutable('codex');
+    result = await codex.analyze(executable, data, settings, { schemaPath: path.join(__dirname, 'codex-analysis-schema.json'), cwd: app.getPath('temp'), timeout: settings.timeoutSeconds * 1000 });
+  } else {
+    const apiKey = await secretStore().get(settings.provider);
+    const schema = JSON.parse(await fs.readFile(path.join(__dirname, 'codex-analysis-schema.json'), 'utf8'));
+    result = await cloudAi.analyze(data, settings, apiKey, schema);
+  }
+  const record = {
+    ...result.analysis,
+    ...metadata,
+    provider: PROVIDERS[settings.provider].label,
+    model: settings.model || 'Modèle recommandé par Codex',
+    reasoningEffort: settings.reasoningEffort,
+    createdAt: new Date().toISOString(),
+    truncated: result.truncated,
+    saved: settings.saveAnalyses,
+  };
+  if (settings.saveAnalyses) await analysisStore().set(git.repoPath, cacheKey, record);
+  return record;
+}
+
+async function runAiCommand(instruction) {
+  const settings = await aiSettings();
+  if (settings.provider !== 'codex') throw new Error('Le mode agent local nécessite « Codex (compte ChatGPT) ». Les autres fournisseurs restent disponibles pour les analyses.');
+  const executable = await resolveExecutable('codex');
+  return repositoryWatcher.mutate(() => codex.agent(executable, instruction, settings, {
+    cwd: git.repoPath,
+    timeout: settings.timeoutSeconds * 1000,
+  }));
+}
+
 async function rememberRepository(repository) {
   const state = await readApplicationState();
   await writeApplicationState({ ...state, lastRepository: repository });
@@ -216,6 +251,10 @@ app.whenReady().then(() => {
     return repository ? openRepository(repository) : null;
   });
   handle('repository:refresh', () => repositoryWatcher.refresh());
+  handle('repository:run-ai-command', async (instruction) => {
+    if (!git.repoPath) throw new Error('Aucun dépôt n’est ouvert.');
+    return runAiCommand(instruction);
+  });
   handle('repository:undo', async (count = 1) => {
     historyMutation = true;
     try {
@@ -418,6 +457,37 @@ app.whenReady().then(() => {
   handle('repository:push-lfs', async () => (await repositoryWatcher.mutate(() => git.pushLfs())).snapshot);
   handle('repository:diff', (file, staged) => git.diff(file, staged));
   handle('repository:stash-diff', (ref) => git.stashDiff(ref));
+  handle('repository:stash-analysis', async (ref, hash) => {
+    if (!git.repoPath) throw new Error('Aucun dépôt n’est ouvert.');
+    const stashHash = await git.stashHash(ref, hash);
+    return analysisStore().get(git.repoPath, `stash:${stashHash}`);
+  });
+  handle('repository:analyze-stash', async (ref, hash) => {
+    if (!git.repoPath) throw new Error('Aucun dépôt n’est ouvert.');
+    const stashHash = await git.stashHash(ref, hash);
+    const data = await git.stashAnalysisData(ref, stashHash);
+    return analyzeGitData(data, `stash:${stashHash}`, { targetType: 'stash', stashHash });
+  });
+  handle('repository:delete-stash-analysis', async (ref, hash) => {
+    if (!git.repoPath) throw new Error('Aucun dépôt n’est ouvert.');
+    const stashHash = await git.stashHash(ref, hash);
+    return analysisStore().delete(git.repoPath, `stash:${stashHash}`);
+  });
+  handle('repository:wip-analysis', async () => {
+    if (!git.repoPath) throw new Error('Aucun dépôt n’est ouvert.');
+    const { fingerprint } = await git.worktreeAnalysisData();
+    return { fingerprint, analysis: await analysisStore().get(git.repoPath, `wip:${fingerprint}`) };
+  });
+  handle('repository:analyze-wip', async () => {
+    if (!git.repoPath) throw new Error('Aucun dépôt n’est ouvert.');
+    const { data, fingerprint } = await git.worktreeAnalysisData();
+    return analyzeGitData(data, `wip:${fingerprint}`, { targetType: 'wip', wipFingerprint: fingerprint });
+  });
+  handle('repository:delete-wip-analysis', async () => {
+    if (!git.repoPath) throw new Error('Aucun dépôt n’est ouvert.');
+    const { fingerprint } = await git.worktreeAnalysisData();
+    return analysisStore().delete(git.repoPath, `wip:${fingerprint}`);
+  });
   handle('repository:stage', async (files) => (await repositoryWatcher.mutate(() => git.stage(files))).snapshot);
   handle('repository:unstage', async (files) => (await repositoryWatcher.mutate(() => git.unstage(files))).snapshot);
   handle('repository:apply-hunk', async (patch, staged, reverse) => (await repositoryWatcher.mutate(() => git.applyHunk(patch, staged, reverse))).snapshot);
@@ -510,30 +580,7 @@ app.whenReady().then(() => {
     if (!git.repoPath) throw new Error('Aucun dépôt n’est ouvert.');
     await git.validateRevision(revision);
     const commitData = await git.commitAnalysisData(revision);
-    const settings = await aiSettings();
-    let result;
-    if (settings.provider === 'codex') {
-      const executable = await resolveExecutable('codex');
-      const status = await codex.status(executable);
-      if (!status.authenticated) throw new Error('Connectez Codex avec « codex login » avant de lancer une analyse.');
-      result = await codex.analyze(executable, commitData, settings, { schemaPath: path.join(__dirname, 'codex-analysis-schema.json'), cwd: app.getPath('temp'), timeout: settings.timeoutSeconds * 1000 });
-    } else {
-      const apiKey = await secretStore().get(settings.provider);
-      const schema = JSON.parse(await fs.readFile(path.join(__dirname, 'codex-analysis-schema.json'), 'utf8'));
-      result = await cloudAi.analyze(commitData, settings, apiKey, schema);
-    }
-    const record = {
-      ...result.analysis,
-      commitHash: revision,
-      provider: PROVIDERS[settings.provider].label,
-      model: settings.model || 'Modèle recommandé par Codex',
-      reasoningEffort: settings.reasoningEffort,
-      createdAt: new Date().toISOString(),
-      truncated: result.truncated,
-      saved: settings.saveAnalyses,
-    };
-    if (settings.saveAnalyses) await analysisStore().set(git.repoPath, revision, record);
-    return record;
+    return analyzeGitData(commitData, revision, { targetType: 'commit', commitHash: revision });
   });
   handle('repository:delete-commit-analysis', async (revision) => {
     if (!git.repoPath) throw new Error('Aucun dépôt n’est ouvert.');

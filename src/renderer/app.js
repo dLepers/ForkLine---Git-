@@ -23,6 +23,8 @@ const state = {
   externalEditorCommand: '',
   aiConfiguration: null,
   activeCommitAnalysis: null,
+  activeStashAnalysis: null,
+  activeWipAnalysis: null,
   branchCreation: { startPoint: null, sourceLabel: '' },
   branchRename: { originalName: null, pending: false },
   tagCreation: { revision: null, sourceLabel: '', pending: false },
@@ -162,7 +164,11 @@ function hasActiveConflicts(snapshot = state.snapshot) {
 function applySnapshot(snapshot, options = {}) {
   if (snapshot.repositoryRevision && state.snapshot?.repositoryRevision >= snapshot.repositoryRevision) return false;
   const conflictWasVisible = !$('#conflict-detail').classList.contains('hidden');
-  if (state.snapshot?.repository && state.snapshot.repository !== snapshot.repository) state.activeCommitAnalysis = null;
+  if (state.snapshot?.repository && state.snapshot.repository !== snapshot.repository) {
+    state.activeCommitAnalysis = null;
+    state.activeStashAnalysis = null;
+    state.activeWipAnalysis = null;
+  }
   state.snapshot = snapshot;
   state.compareSelection = state.compareSelection.filter((hash) => snapshot.commits.some((commit) => commit.hash === hash)).slice(-2);
   const repoName = basename(snapshot.repository);
@@ -1355,7 +1361,7 @@ function referenceDetails(reference) {
 
 function ensureHistoryStructure() {
   if ($('#commits') && $('.history-head') && $('#history-search')) return;
-  $('#history-view').innerHTML = `<div class="history-tools"><span>⌕</span><input id="history-search" type="search" placeholder="Texte, author:, file:, after:, before:, branch:…" autocomplete="off" title="Exemple : correction author:Daisy file:src/app.js after:2026-01-01" value="${escapeHtml(state.historyQuery)}"><button id="clear-history-search" type="button" title="Effacer la recherche">×</button></div><div class="history-head"><span>BRANCHE / TAG · GRAPHE</span><span>MESSAGE DU COMMIT</span><span>AUTEUR</span><span>DATE</span></div><div id="commits" class="commit-list"></div>`;
+  $('#history-view').innerHTML = `<div class="history-tools"><span>⌕</span><input id="history-search" type="search" placeholder="Texte, author:, file:, after:, before:, branch:…" autocomplete="off" title="Exemple : correction author:Daisy file:src/app.js after:2026-01-01" value="${escapeHtml(state.historyQuery)}"><button id="clear-history-search" type="button" title="Effacer la recherche">×</button></div><div class="ai-command-tools"><span>✦</span><input id="ai-command" type="text" maxlength="20000" placeholder="Demander à Codex d’agir dans le dépôt : commit en séparant les fonctionnalités…" autocomplete="off"><button id="run-ai-command" type="button">Exécuter</button><small id="ai-command-status"></small></div><div class="history-head"><span>BRANCHE / TAG · GRAPHE</span><span>MESSAGE DU COMMIT</span><span>AUTEUR</span><span>DATE</span></div><div id="commits" class="commit-list"></div>`;
   bindHistorySearch();
 }
 
@@ -1374,6 +1380,45 @@ function bindHistorySearch() {
     input.value = '';
     renderCommits();
     $('#history-search')?.focus();
+  });
+  bindAiCommandBar();
+}
+
+async function runAiCommand() {
+  const input = $('#ai-command');
+  const instruction = input.value.trim();
+  if (!instruction) return input.focus();
+  const wrapper = input.closest('.ai-command-tools');
+  const status = $('#ai-command-status');
+  wrapper.classList.add('has-status');
+  if (!window.confirm(`Envoyer cette instruction à Codex ?\n\n${instruction}\n\nCodex sera lancé sans bac à sable afin de pouvoir écrire dans .git : il pourra modifier les fichiers, exécuter des commandes locales et créer ou réécrire plusieurs commits. Ne confirmez que pour un dépôt et une instruction de confiance.`)) {
+    status.textContent = 'Instruction annulée, aucune action lancée.';
+    return;
+  }
+  status.textContent = 'Codex travaille dans le dépôt…';
+  $('#run-ai-command').disabled = true;
+  const executed = await action('', () => window.forkline.runAiCommand(instruction).then(unwrap));
+  $('#run-ai-command').disabled = false;
+  if (!executed) {
+    status.textContent = 'Codex n’a pas pu terminer cette instruction.';
+    return;
+  }
+  input.value = '';
+  status.textContent = executed.output.message;
+  applySnapshot(executed.snapshot);
+  toast('Instruction Codex terminée');
+}
+
+function bindAiCommandBar() {
+  const input = $('#ai-command');
+  if (!input || input.dataset.bound) return;
+  input.dataset.bound = 'true';
+  $('#run-ai-command').addEventListener('click', runAiCommand);
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      runAiCommand();
+    }
   });
 }
 
@@ -1560,6 +1605,7 @@ function renderWorktreeInspector() {
   $('#worktree-detail').innerHTML = `
     ${operation ? `<section class="operation-banner"><div><p class="eyebrow">OPÉRATION GIT</p><strong>${escapeHtml(operation.label)}</strong><span>${operationHelp}</span></div><div><button class="button button-small danger" data-operation-action="abort">Abandonner…</button>${activeConflicts ? '<button class="button button-small button-primary" data-operation-action="open">Afficher les conflits</button>' : ''}</div></section>` : ''}
     <header class="worktree-header"><div><p class="eyebrow">TRAVAIL EN COURS</p><h3>${files.length} fichier${files.length > 1 ? 's' : ''} modifié${files.length > 1 ? 's' : ''}</h3></div><button class="text-button" data-worktree-action="stage-all">Tout ajouter</button></header>
+    <section class="commit-ai-section worktree-ai-section"><div class="commit-ai-heading"><p class="eyebrow">ANALYSE IA DU WIP</p></div><div id="wip-ai-content" class="commit-ai-content">${files.length ? '<span>Recherche d’une analyse enregistrée…</span>' : '<p class="commit-ai-empty">Aucune modification à analyser.</p>'}</div></section>
     <div class="worktree-files">
       <section class="worktree-file-group worktree-file-group-unstaged">
         <h4><span>Fichiers non indexés</span><strong>${files.filter((file) => !file.staged).length}</strong></h4>
@@ -1573,6 +1619,7 @@ function renderWorktreeInspector() {
     <div class="worktree-commit"><label for="worktree-commit-message">RÉSUMÉ DU COMMIT</label><textarea id="worktree-commit-message" rows="4" placeholder="${escapeHtml(operation?.defaultMessage?.split('\n')[0] || 'Décrire clairement ce qui change…')}"></textarea><label class="commit-option"><input id="worktree-commit-amend" type="checkbox"${operation ? ' disabled' : ''}><span>Modifier le dernier commit</span></label><label class="commit-option"><input id="worktree-commit-sign" type="checkbox"${state.snapshot.commitPreferences?.gpgSign ? ' checked' : ''}><span>Signer ce commit</span></label><button class="button button-primary" data-worktree-action="commit">${operation && !activeConflicts ? (operation.type === 'merge' ? 'Terminer la fusion' : 'Poursuivre l’opération') : 'Créer le commit'}</button></div>`;
   renderFileList('#worktree-staged-files', files.filter((file) => file.staged), true);
   renderFileList('#worktree-unstaged-files', files.filter((file) => file.workingTree !== ' ' || file.untracked), false);
+  if (files.length) loadWipAnalysis();
   $$('[data-operation-action]').forEach((button) => button.addEventListener('click', async () => {
     const mode = button.dataset.operationAction;
     if (mode === 'open') return showInspector('#conflict-detail');
@@ -1597,6 +1644,59 @@ function renderWorktreeInspector() {
   $('#worktree-commit-amend').addEventListener('change', (event) => {
     if (event.target.checked && !$('#worktree-commit-message').value.trim()) $('#worktree-commit-message').value = state.snapshot.commits.find((commit) => commit.hash === state.snapshot.headHash)?.subject || '';
   });
+}
+
+function renderWipAnalysis(analysis) {
+  const container = $('#wip-ai-content');
+  if (!container) return;
+  if (!analysis) {
+    container.innerHTML = '<p class="commit-ai-empty">L’IA peut analyser les modifications indexées, non indexées et les fichiers non suivis du travail en cours.</p><button id="analyze-wip" type="button" class="button button-primary">Analyser le WIP</button><p class="commit-ai-data-note">Le contenu des fichiers non suivis est également transmis au fournisseur configuré.</p>';
+  } else {
+    const files = analysis.files?.length ? `<section class="commit-ai-group"><h4>Fichiers clés</h4><dl class="commit-ai-files">${analysis.files.map((file) => `<dt>${escapeHtml(file.path)}</dt><dd>${escapeHtml(file.change)}</dd>`).join('')}</dl></section>` : '';
+    container.innerHTML = `<p class="commit-ai-summary">${escapeHtml(analysis.summary)}</p>
+      ${commitAnalysisList('Fonctionnalités et comportements', analysis.functionalChanges)}
+      ${commitAnalysisList('Modifications techniques', analysis.technicalChanges)}
+      ${commitAnalysisList('Impacts', analysis.impacts)}
+      ${commitAnalysisList('Risques et limites', analysis.risks, 'warning')}
+      ${commitAnalysisList('Tests', analysis.tests)}${files}
+      <p class="commit-ai-meta">${escapeHtml(analysis.provider || 'Codex')} · ${escapeHtml(analysis.model)} · détail ${escapeHtml(analysis.reasoningEffort)} · ${escapeHtml(new Date(analysis.createdAt).toLocaleString('fr'))}${analysis.truncated ? ' · diff tronqué' : ''}${analysis.saved ? ' · enregistré localement' : ' · non enregistré'}</p>
+      <div class="commit-ai-actions"><button id="analyze-wip" type="button" class="button button-small">Réanalyser</button>${analysis.saved ? '<button id="delete-wip-analysis" type="button" class="button button-small danger">Supprimer l’analyse</button>' : ''}</div>`;
+  }
+  $('#analyze-wip').addEventListener('click', analyzeWipWithAi);
+  $('#delete-wip-analysis')?.addEventListener('click', deleteWipAnalysis);
+}
+
+async function loadWipAnalysis() {
+  const repositoryRevision = state.snapshot.repositoryRevision;
+  const result = await window.forkline.wipAnalysis().then(unwrap).catch((error) => {
+    toast(error.message, true);
+    return null;
+  });
+  if (!result || state.snapshot.repositoryRevision !== repositoryRevision || !$('#wip-ai-content')) return;
+  const analysis = state.activeWipAnalysis?.wipFingerprint === result.fingerprint ? state.activeWipAnalysis : result.analysis;
+  state.activeWipAnalysis = analysis;
+  renderWipAnalysis(analysis);
+}
+
+async function analyzeWipWithAi() {
+  const repositoryRevision = state.snapshot.repositoryRevision;
+  const previous = state.activeWipAnalysis;
+  $('#wip-ai-content').innerHTML = '<div class="commit-ai-loading"><span></span><strong>L’IA analyse le WIP…</strong><small>Cette opération peut prendre quelques instants.</small></div>';
+  const analysis = await action('', () => window.forkline.analyzeWip().then(unwrap));
+  if (state.snapshot.repositoryRevision !== repositoryRevision || !$('#wip-ai-content')) return;
+  if (!analysis) return renderWipAnalysis(previous);
+  state.activeWipAnalysis = analysis;
+  renderWipAnalysis(analysis);
+}
+
+async function deleteWipAnalysis() {
+  if (!window.confirm('Supprimer l’analyse IA enregistrée pour cet état du WIP ?')) return;
+  const repositoryRevision = state.snapshot.repositoryRevision;
+  const deleted = await action('', () => window.forkline.deleteWipAnalysis().then(unwrap));
+  if (!deleted || state.snapshot.repositoryRevision !== repositoryRevision) return;
+  state.activeWipAnalysis = null;
+  renderWipAnalysis(null);
+  toast('Analyse IA du WIP supprimée');
 }
 
 function renderConflictInspector() {
@@ -1761,10 +1861,9 @@ function showCommitDetails(commit) {
     <h3>${escapeHtml(commit.subject)}</h3>
     <dl class="detail-grid"><dt>Auteur</dt><dd>${escapeHtml(commit.author)}<br>${escapeHtml(commit.email)}</dd><dt>Date</dt><dd>${escapeHtml(new Date(commit.date).toLocaleString('fr'))}</dd><dt>Parent${commit.parents.length > 1 ? 's' : ''}</dt><dd>${commit.parents.map((parent) => parent.slice(0, 10)).join(', ') || 'Commit initial'}</dd></dl>
     <div class="detail-refs">${commit.refs.map((ref) => `<span class="detail-ref">${escapeHtml(ref)}</span>`).join('')}</div>
-    <section class="commit-ai-section"><div class="commit-ai-heading"><p class="eyebrow">ANALYSE IA</p><button id="open-ai-settings" type="button" class="icon-button" title="Configurer l’analyse IA" aria-label="Configurer l’analyse IA">⚙</button></div><div id="commit-ai-content" class="commit-ai-content"><span>Recherche d’une analyse enregistrée…</span></div></section>
+    <section class="commit-ai-section"><div class="commit-ai-heading"><p class="eyebrow">ANALYSE IA</p></div><div id="commit-ai-content" class="commit-ai-content"><span>Recherche d’une analyse enregistrée…</span></div></section>
     <section class="commit-files-section"><p class="eyebrow">FICHIERS</p><div id="commit-files" class="commit-files"><span>Chargement…</span></div></section>`;
   showInspector('#commit-detail');
-  $('#open-ai-settings').addEventListener('click', openAiSettings);
   loadCommitAnalysis(commit);
   loadCommitFiles(commit);
 }
@@ -1841,14 +1940,21 @@ function updateAiProviderFields() {
   const provider = $('#ai-provider').value;
   $('#ai-api-fields').classList.toggle('hidden', provider === 'codex');
   $('#ai-privacy-note').textContent = provider === 'codex'
-    ? 'Codex utilise la connexion ChatGPT du CLI, lancé en lecture seule et sans session d’analyse persistante. Les règles du compte OpenAI restent applicables.'
+    ? 'Codex utilise la connexion ChatGPT du CLI. Les analyses restent en lecture seule ; la barre d’instructions peut agir librement dans le dépôt après confirmation. Les règles du compte OpenAI restent applicables.'
     : 'Forkline transmet le message, les métadonnées et le diff du commit au fournisseur choisi. Sa politique de conservation et sa facturation API s’appliquent.';
 }
 
-async function openAiSettings() {
-  $('#ai-settings-dialog').showModal();
+function selectApplicationSettingsPanel(panel = 'ai') {
+  $$('[data-settings-panel]').forEach((button) => button.classList.toggle('active', button.dataset.settingsPanel === panel));
+  $$('[data-settings-content]').forEach((content) => content.classList.toggle('hidden', content.dataset.settingsContent !== panel));
+}
+
+async function openApplicationSettings(panel = 'ai') {
+  if (typeof panel !== 'string') panel = 'ai';
+  selectApplicationSettingsPanel(panel);
+  $('#application-settings-dialog').showModal();
   const configuration = await action('', () => window.forkline.aiConfiguration().then(unwrap));
-  if (!configuration || !$('#ai-settings-dialog').open) return;
+  if (!configuration || !$('#application-settings-dialog').open) return;
   state.aiConfiguration = configuration;
   const selectedModel = configuration.settings.model;
   $('#ai-model-list').innerHTML = configuration.models.map((model) => `<option value="${escapeHtml(model.id)}">${escapeHtml(model.name)}</option>`).join('');
@@ -2211,10 +2317,62 @@ function renderStashDetail(stash) {
   $('#stash-detail').innerHTML = `
     <header class="stash-detail-header"><div><p class="eyebrow">${escapeHtml(stash.ref)}</p><h3>${escapeHtml(stash.message)}</h3></div><span class="stash-detail-glyph">▣</span></header>
     <dl class="detail-grid"><dt>Branche</dt><dd>${escapeHtml(stash.branch || 'HEAD détaché')}</dd><dt>Date</dt><dd>${escapeHtml(new Date(stash.date).toLocaleString('fr'))}</dd><dt>Base</dt><dd>${escapeHtml((stash.baseHash || '').slice(0, 10))}</dd><dt>Fichiers</dt><dd>${stash.fileCount}</dd></dl>
+    <section class="commit-ai-section"><div class="commit-ai-heading"><p class="eyebrow">ANALYSE IA DU STASH</p></div><div id="stash-ai-content" class="commit-ai-content"><span>Recherche d’une analyse enregistrée…</span></div></section>
     <div class="stash-files">${stash.files.map((file) => `<label><input type="checkbox" data-stash-file value="${escapeHtml(file)}" checked><span>${escapeHtml(file)}</span></label>`).join('')}</div>
     <div class="stash-actions"><button class="button button-primary" data-stash-action="apply">Appliquer tout</button><button class="button" data-stash-action="apply-selected">Appliquer la sélection</button><button class="button" data-stash-action="pop">Appliquer et supprimer</button><button class="button danger" data-stash-action="drop">Supprimer</button></div>`;
   $$('[data-stash-action]').forEach((button) => button.addEventListener('click', () => runStashAction(button.dataset.stashAction, stash.ref)));
   showInspector('#stash-detail');
+  loadStashAnalysis(stash);
+}
+
+function renderStashAnalysis(stash, analysis) {
+  const container = $('#stash-ai-content');
+  if (!container || state.selectedStash !== stash.ref) return;
+  if (!analysis) {
+    container.innerHTML = '<p class="commit-ai-empty">L’IA configurée peut expliquer les changements conservés dans ce stash, leurs impacts et leurs risques.</p><button id="analyze-stash" type="button" class="button button-primary">Analyser ce stash</button>';
+  } else {
+    const files = analysis.files?.length ? `<section class="commit-ai-group"><h4>Fichiers clés</h4><dl class="commit-ai-files">${analysis.files.map((file) => `<dt>${escapeHtml(file.path)}</dt><dd>${escapeHtml(file.change)}</dd>`).join('')}</dl></section>` : '';
+    container.innerHTML = `<p class="commit-ai-summary">${escapeHtml(analysis.summary)}</p>
+      ${commitAnalysisList('Fonctionnalités et comportements', analysis.functionalChanges)}
+      ${commitAnalysisList('Modifications techniques', analysis.technicalChanges)}
+      ${commitAnalysisList('Impacts', analysis.impacts)}
+      ${commitAnalysisList('Risques et limites', analysis.risks, 'warning')}
+      ${commitAnalysisList('Tests', analysis.tests)}${files}
+      <p class="commit-ai-meta">${escapeHtml(analysis.provider || 'Codex')} · ${escapeHtml(analysis.model)} · détail ${escapeHtml(analysis.reasoningEffort)} · ${escapeHtml(new Date(analysis.createdAt).toLocaleString('fr'))}${analysis.truncated ? ' · diff tronqué' : ''}${analysis.saved ? ' · enregistré localement' : ' · non enregistré'}</p>
+      <div class="commit-ai-actions"><button id="analyze-stash" type="button" class="button button-small">Réanalyser</button>${analysis.saved ? '<button id="delete-stash-analysis" type="button" class="button button-small danger">Supprimer l’analyse</button>' : ''}</div>`;
+  }
+  $('#analyze-stash').addEventListener('click', () => analyzeStashWithAi(stash));
+  $('#delete-stash-analysis')?.addEventListener('click', () => deleteStashAnalysis(stash));
+}
+
+async function loadStashAnalysis(stash) {
+  if (state.activeStashAnalysis?.stashHash === stash.hash) return renderStashAnalysis(stash, state.activeStashAnalysis);
+  const analysis = await window.forkline.stashAnalysis(stash.ref, stash.hash).then(unwrap).catch((error) => {
+    toast(error.message, true);
+    return null;
+  });
+  if (state.selectedStash !== stash.ref) return;
+  state.activeStashAnalysis = analysis;
+  renderStashAnalysis(stash, analysis);
+}
+
+async function analyzeStashWithAi(stash) {
+  const previous = state.activeStashAnalysis?.stashHash === stash.hash ? state.activeStashAnalysis : null;
+  $('#stash-ai-content').innerHTML = '<div class="commit-ai-loading"><span></span><strong>L’IA analyse le stash…</strong><small>Cette opération peut prendre quelques instants.</small></div>';
+  const analysis = await action('', () => window.forkline.analyzeStash(stash.ref, stash.hash).then(unwrap));
+  if (state.selectedStash !== stash.ref) return;
+  if (!analysis) return renderStashAnalysis(stash, previous);
+  state.activeStashAnalysis = analysis;
+  renderStashAnalysis(stash, analysis);
+}
+
+async function deleteStashAnalysis(stash) {
+  if (!window.confirm('Supprimer l’analyse IA enregistrée pour ce stash ?')) return;
+  const deleted = await action('', () => window.forkline.deleteStashAnalysis(stash.ref, stash.hash).then(unwrap));
+  if (!deleted || state.selectedStash !== stash.ref) return;
+  state.activeStashAnalysis = null;
+  renderStashAnalysis(stash, null);
+  toast('Analyse IA du stash supprimée');
 }
 
 async function selectStash(ref) {
@@ -2258,6 +2416,7 @@ async function runStashAction(operation, ref) {
   const result = await action('', () => window.forkline[methods[operation]](ref, selectedFiles).then(unwrap));
   if (!result) return;
   state.selectedStash = null;
+  state.activeStashAnalysis = null;
   applySnapshot(result.snapshot);
   renderStashes();
   if (result.conflicted) {
@@ -2405,6 +2564,7 @@ function setView(view) {
 $('#open-repo-welcome').addEventListener('click', openRepository);
 $('#clone-repo-welcome').addEventListener('click', cloneRepository);
 $('#init-repo-welcome').addEventListener('click', initializeRepository);
+$('#open-application-settings-welcome').addEventListener('click', openApplicationSettings);
 document.addEventListener('click', (event) => {
   if (!event.target.closest('#branch-context-menu')) closeBranchContextMenu();
   if (!event.target.closest('#commit-context-menu')) closeCommitContextMenu();
@@ -2424,6 +2584,8 @@ window.addEventListener('blur', () => {
 });
 $('#open-repo').addEventListener('click', openRepository);
 $('#toolbar-repository').addEventListener('click', openRepository);
+$('#open-application-settings').addEventListener('click', openApplicationSettings);
+$$('[data-settings-panel]').forEach((button) => button.addEventListener('click', () => selectApplicationSettingsPanel(button.dataset.settingsPanel)));
 $('#refresh').addEventListener('click', () => refresh());
 async function performUndo(count = 1) {
   const history = state.snapshot.undoHistory || [];
@@ -2712,7 +2874,7 @@ $('#confirm-ai-settings').addEventListener('click', async (event) => {
   }).then(unwrap));
   if (!result) return;
   state.aiConfiguration.settings = result.settings;
-  $('#ai-settings-dialog').close();
+  $('#application-settings-dialog').close();
   toast('Paramètres d’analyse IA enregistrés');
 });
 $('#clear-ai-analyses').addEventListener('click', async () => {
@@ -2720,8 +2882,13 @@ $('#clear-ai-analyses').addEventListener('click', async () => {
   const cleared = await action('', () => window.forkline.clearAiAnalyses().then(unwrap));
   if (!cleared) return;
   state.activeCommitAnalysis = null;
+  state.activeStashAnalysis = null;
+  state.activeWipAnalysis = null;
   const commit = state.snapshot?.commits.find((entry) => entry.hash === state.selectedCommit);
+  const stash = state.snapshot?.stashes.find((entry) => entry.ref === state.selectedStash);
   if (commit) renderCommitAnalysis(commit, null);
+  if (stash) renderStashAnalysis(stash, null);
+  if (state.snapshot?.status.files.length && $('#wip-ai-content')) renderWipAnalysis(null);
   toast('Analyses IA enregistrées effacées');
 });
 $('#save-identity-profile').addEventListener('click', async () => {

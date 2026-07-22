@@ -43,6 +43,12 @@ test('all preload IPC invocations have a main-process handler', () => {
   assert.deepEqual(missing, []);
 });
 
+test('Codex actions rely on the command result instead of a fallible login preflight', () => {
+  assert.equal(captures(main, /\b(codex\.status)\(/g).length, 1);
+  assert.match(main, /status = await codex\.status\(executable\)/);
+  assert.doesNotMatch(main, /if \(!status(?:Result)?\.authenticated\) throw new Error\('Connectez Codex/);
+});
+
 test('commit graph nodes expose a GitKraken-style author tooltip', () => {
   assert.match(renderer, /class="commit-node-target" data-commit-node="\$\{escapeHtml\(commit\.hash\)\}"/);
   assert.match(renderer, /class="commit-node-hit-area"/);
@@ -249,7 +255,11 @@ test('stash patch export stays in the main process and writes the selected file'
 });
 
 test('commit details expose configurable, persistent multi-provider AI analysis', () => {
-  assert.match(html, /id="ai-settings-dialog"/);
+  assert.match(html, /id="application-settings-dialog"/);
+  assert.match(html, /id="open-application-settings-welcome"/);
+  assert.match(html, /id="open-application-settings"/);
+  assert.match(html, /data-settings-panel="ai"/);
+  assert.match(html, /partagée par toutes les fonctionnalités IA actuelles et futures/);
   assert.match(html, /id="ai-provider"/);
   assert.match(html, /id="ai-model"/);
   assert.match(html, /id="ai-api-key"/);
@@ -262,9 +272,27 @@ test('commit details expose configurable, persistent multi-provider AI analysis'
   assert.match(renderer, /window\.forkline\.analyzeCommit\(commit\.hash\)/);
   assert.match(renderer, /window\.forkline\.deleteCommitAnalysis\(commit\.hash\)/);
   assert.match(renderer, /window\.forkline\.setAiSettings/);
+  assert.match(renderer, /open-application-settings-welcome[^\n]*openApplicationSettings/);
+  assert.match(renderer, /open-application-settings'\)\.addEventListener\('click', openApplicationSettings/);
+  assert.doesNotMatch(renderer, /id="open-(?:stash-|wip-)?ai-settings"/);
   assert.match(renderer, /window\.forkline\.clearAiAnalyses/);
+  assert.match(renderer, /ANALYSE IA DU STASH/);
+  assert.match(renderer, /window\.forkline\.stashAnalysis\(stash\.ref, stash\.hash\)/);
+  assert.match(renderer, /window\.forkline\.analyzeStash\(stash\.ref, stash\.hash\)/);
+  assert.match(renderer, /window\.forkline\.deleteStashAnalysis\(stash\.ref, stash\.hash\)/);
+  assert.match(renderer, /if \(stash\) renderStashAnalysis\(stash, null\)/);
+  assert.match(preload, /stashAnalysis: \(ref, hash\) => invoke\('repository:stash-analysis'/);
+  assert.match(preload, /analyzeStash: \(ref, hash\) => invoke\('repository:analyze-stash'/);
+  assert.match(renderer, /ANALYSE IA DU WIP/);
+  assert.match(renderer, /window\.forkline\.wipAnalysis\(\)/);
+  assert.match(renderer, /window\.forkline\.analyzeWip\(\)/);
+  assert.match(renderer, /window\.forkline\.deleteWipAnalysis\(\)/);
+  assert.match(renderer, /fichiers non suivis est également transmis/);
+  assert.match(preload, /wipAnalysis: \(\) => invoke\('repository:wip-analysis'/);
+  assert.match(main, /`wip:\$\{fingerprint\}`/);
   assert.match(renderer, /model\?\.reasoningEfforts\?\.length/);
-  assert.match(renderer, /state\.snapshot\?\.repository && state\.snapshot\.repository !== snapshot\.repository\) state\.activeCommitAnalysis = null/);
+  assert.match(renderer, /state\.snapshot\?\.repository && state\.snapshot\.repository !== snapshot\.repository/);
+  assert.match(renderer, /state\.activeStashAnalysis = null/);
   assert.match(preload, /aiConfiguration: \(\) => invoke\('application:ai-configuration'\)/);
   assert.match(codexService, /'exec', '--sandbox', 'read-only', '--ephemeral'/);
   assert.match(main, /codex-analyses\.json/);
@@ -277,6 +305,18 @@ test('history search keeps its input mounted while rendering results', () => {
   assert.match(resultRenderer, /\$\('#commits'\)\.innerHTML/);
   assert.doesNotMatch(resultRenderer, /\$\('#history-view'\)\.innerHTML/);
   assert.match(resultRenderer, /\$\('#history-search'\)\.focus\(\)/);
+});
+
+test('AI command bar runs a free-form Codex agent after explicit confirmation', () => {
+  assert.match(html, /id="ai-command"/);
+  assert.match(html, /id="run-ai-command"/);
+  assert.match(html, />Exécuter<\/button>/);
+  assert.match(renderer, /window\.forkline\.runAiCommand\(instruction\)/);
+  assert.match(renderer, /lancé sans bac à sable afin de pouvoir écrire dans \.git/);
+  assert.match(renderer, /executed\.output\.message/);
+  assert.match(preload, /runAiCommand: \(instruction\) => invoke\('repository:run-ai-command'/);
+  assert.match(main, /settings\.provider !== 'codex'/);
+  assert.match(main, /repositoryWatcher\.mutate\(\(\) => codex\.agent/);
 });
 
 test('long commit and Codex details remain vertically scrollable', () => {

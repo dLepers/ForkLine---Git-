@@ -22,7 +22,7 @@
       <p class="eyebrow">CLIENT GIT LOCAL</p>
       <h1>Suivez chaque ligne<br>de votre histoire.</h1>
       <p class="welcome-copy">Dépôts publics, privés ou auto-hébergés.<br>Vos identifiants restent gérés par Git.</p>
-      <div class="welcome-actions"><button id="open-repo-welcome" class="button button-primary">Ouvrir un dépôt</button><button id="clone-repo-welcome" class="button">Cloner un dépôt</button><button id="init-repo-welcome" class="button">Initialiser un dépôt</button></div>
+      <div class="welcome-actions"><button id="open-repo-welcome" class="button button-primary">Ouvrir un dépôt</button><button id="clone-repo-welcome" class="button">Cloner un dépôt</button><button id="init-repo-welcome" class="button">Initialiser un dépôt</button><button id="open-application-settings-welcome" class="button">Paramètres</button></div>
       <p id="restore-status" class="restore-status">Recherche du dernier dépôt…</p>
     </main>
 
@@ -101,12 +101,14 @@
             <button id="toolbar-stash" class="tool-button" type="button" title="Mettre les modifications de côté">♨<span>Stash</span></button>
             <button id="toolbar-pop-stash" class="tool-button" type="button" title="Appliquer et supprimer le dernier stash" disabled>♨<span>Pop</span></button>
             <button id="open-terminal" class="tool-button terminal-button" type="button" title="Ouvrir un terminal dans le dépôt">›_<span>Terminal</span></button>
+            <button id="open-application-settings" class="tool-button" type="button" title="Paramètres de l’application">⚙<span>Paramètres</span></button>
             <button id="refresh" class="icon-button" type="button" title="Actualiser">↻</button>
           </div>
         </header>
 
         <div id="history-view" class="view history-view">
           <div class="history-tools"><span>⌕</span><input id="history-search" type="search" placeholder="Texte, author:, file:, after:, before:, branch:…" autocomplete="off" title="Exemple : correction author:Daisy file:src/app.js after:2026-01-01"><button id="clear-history-search" type="button" title="Effacer la recherche">×</button></div>
+          <div class="ai-command-tools"><span>✦</span><input id="ai-command" type="text" maxlength="20000" placeholder="Demander à Codex d’agir dans le dépôt : commit en séparant les fonctionnalités…" autocomplete="off"><button id="run-ai-command" type="button">Exécuter</button><small id="ai-command-status"></small></div>
           <div class="history-head"><span>BRANCHE / TAG · GRAPHE</span><span>MESSAGE DU COMMIT</span><span>AUTEUR</span><span>DATE</span></div>
           <div id="commits" class="commit-list"></div>
         </div>
@@ -234,9 +236,12 @@
         <div class="dialog-actions"><button value="cancel" class="button">Annuler</button><button id="confirm-identity" value="default" class="button button-primary">Enregistrer</button></div>
       </form>
     </dialog>
-    <dialog id="ai-settings-dialog" class="ai-settings-dialog">
-      <form method="dialog">
-        <p class="eyebrow">ANALYSE IA</p><h3>Configurer l’analyse des commits</h3>
+    <dialog id="application-settings-dialog" class="application-settings-dialog">
+      <form method="dialog" class="application-settings-form">
+        <aside class="application-settings-nav"><p class="eyebrow">PARAMÈTRES</p><h3>Forkline</h3><button type="button" class="application-settings-tab active" data-settings-panel="ai"><span>✦</span> Intelligence artificielle</button></aside>
+        <section class="application-settings-panel" data-settings-content="ai">
+        <p class="eyebrow">INTELLIGENCE ARTIFICIELLE</p><h3>Configurer l’IA de Forkline</h3>
+        <p class="settings-introduction">Cette configuration est partagée par toutes les fonctionnalités IA actuelles et futures de l’application.</p>
         <p id="ai-status" class="ai-status">Vérification du fournisseur…</p>
         <label for="ai-provider">Fournisseur</label><select id="ai-provider"><option value="codex">Codex (compte ChatGPT)</option><option value="openai">OpenAI API</option><option value="anthropic">Anthropic Claude</option><option value="gemini">Google Gemini</option><option value="openai-compatible">API compatible OpenAI</option></select>
         <div id="ai-api-fields">
@@ -253,6 +258,7 @@
         <p id="ai-privacy-note" class="ai-privacy-note">Forkline transmet le message, les métadonnées et le diff du commit au fournisseur choisi. Sa politique de conservation s’applique.</p>
         <button id="clear-ai-analyses" type="button" class="button button-small danger">Effacer toutes les analyses enregistrées</button>
         <div class="dialog-actions"><button value="cancel" class="button">Annuler</button><button id="confirm-ai-settings" value="default" class="button button-primary">Enregistrer</button></div>
+        </section>
       </form>
     </dialog>
     <script src="graph-layout.js"></script>

@@ -33,3 +33,26 @@ test('does not invalidate action history when the repository fingerprint is unch
   assert.equal(await watcher.refreshIfChanged(), null);
   assert.equal(invalidations, 0);
 });
+
+test('refreshes the repository after a mutation that partially changes state then fails', async () => {
+  const events = [];
+  const watcher = new RepositoryWatcher({}, () => {}, {
+    onMutationStart: () => events.push('start'),
+  });
+  watcher.repository = '/tmp/repository';
+  watcher.refresh = async () => {
+    events.push('refresh');
+    return { repositoryRevision: 2 };
+  };
+
+  await assert.rejects(
+    watcher.mutate(async () => {
+      events.push('mutation');
+      throw new Error('délai dépassé');
+    }),
+    /délai dépassé/,
+  );
+
+  assert.deepEqual(events, ['start', 'mutation', 'refresh']);
+  assert.equal(watcher.mutationDepth, 0);
+});

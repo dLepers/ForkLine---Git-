@@ -188,6 +188,10 @@ button { cursor: pointer; }
 .history-tools input { min-width: 0; height: 28px; border: 0; outline: 0; color: #d8e1eb; background: transparent; font-size: 12px; }
 .history-tools button { height: 26px; border: 0; color: #7d8997; background: transparent; font-size: 18px; }
 .history-tools button:hover { color: #fff; }
+.ai-command-tools { position: sticky; top: 38px; z-index: 4; min-height: 39px; padding: 5px 10px; display: grid; grid-template-columns: 22px minmax(0,1fr) auto; align-items: center; gap: 4px; color: #84adff; border-bottom: 1px solid rgba(132,173,255,.16); background: #121821; }
+.ai-command-tools input { min-width: 0; height: 28px; border: 0; outline: 0; color: #d8e1eb; background: transparent; font-size: 12px; }.ai-command-tools input::placeholder { color: #697686; }
+.ai-command-tools button { min-height: 27px; padding: 3px 9px; border: 1px solid rgba(132,173,255,.45); border-radius: 3px; color: #bfd4f5; background: rgba(79,140,255,.12); font-size: 10px; }.ai-command-tools button:disabled { opacity: .45; }
+.ai-command-tools small { grid-column: 2 / 4; display: none; max-height: 120px; overflow-y: auto; padding: 2px 0 4px; color: #8290a0; font-size: 9px; white-space: pre-wrap; scrollbar-width: thin; }.ai-command-tools.has-status small { display: block; }
 .commit-list { min-height: 100%; }
 .history-head, .commit-row { display: grid; grid-template-columns: var(--graph-width, 76px) minmax(210px, 1fr) 130px 92px; }
 .history-head { position: sticky; top: 38px; z-index: 2; padding: 8px 20px 8px 0; color: #71808e; background: rgba(14,18,23,.96); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(255,255,255,.08); font-size: 9px; letter-spacing: .13em; }
@@ -352,6 +356,8 @@ textarea:focus, dialog input:focus { border-color: var(--accent); box-shadow: 0 
 .commit-ai-heading .icon-button { width: 27px; height: 27px; color: #97a7ba; border-color: transparent; background: transparent; }
 .commit-ai-content { color: #aeb8c4; font-size: 11px; line-height: 1.55; }
 .commit-ai-empty { margin: 0 0 13px; }
+.commit-ai-data-note { margin: 10px 0 0; color: #7f8b98; font-size: 9px; line-height: 1.5; }
+.worktree-ai-section { margin-inline: 18px; }
 .commit-ai-summary { margin: 0; color: #e1e7ed; font-size: 12px; line-height: 1.65; }
 .commit-ai-group { margin-top: 16px; }
 .commit-ai-group h4 { margin: 0 0 6px; color: #c7d7eb; font-size: 10px; text-transform: uppercase; letter-spacing: .09em; }
@@ -421,7 +427,11 @@ textarea:focus, dialog input:focus { border-color: var(--accent); box-shadow: 0 
 dialog { width: 430px; padding: 0; border: 0; border-radius: 6px; color: var(--ink); background: var(--paper); box-shadow: 0 24px 80px rgba(0,0,0,.45); }
 dialog::backdrop { background: rgba(16,18,15,.7); backdrop-filter: blur(3px); }
 dialog form { padding: 26px; } dialog h3 { margin: 7px 0 22px; font: 400 24px var(--display); }.dialog-actions { margin-top: 20px; display: flex; justify-content: flex-end; gap: 8px; }
-.ai-settings-dialog { width: min(620px, calc(100vw - 50px)); max-height: calc(100vh - 50px); overflow: auto; }
+.application-settings-dialog { width: min(820px, calc(100vw - 50px)); max-height: calc(100vh - 50px); overflow: hidden; }
+.application-settings-form { min-height: min(650px, calc(100vh - 50px)); padding: 0; display: grid; grid-template-columns: 210px minmax(0,1fr); }
+.application-settings-nav { padding: 27px 15px; color: #cbd2da; background: #252b33; }.application-settings-nav h3 { margin: 5px 10px 25px; color: #fff; }.application-settings-nav .eyebrow { margin-left: 10px; color: #7e8a98; }
+.application-settings-tab { width: 100%; padding: 10px 11px; display: flex; align-items: center; gap: 9px; border: 0; border-radius: 4px; color: #aeb8c4; background: transparent; text-align: left; }.application-settings-tab.active { color: #fff; background: rgba(79,140,255,.2); }.application-settings-tab span { color: #84adff; }
+.application-settings-panel { min-width: 0; padding: 27px; overflow: auto; }.application-settings-panel > h3 { margin-bottom: 10px; }.settings-introduction { margin: 0 0 22px; color: #68727d; font-size: 12px; line-height: 1.5; }
 .ai-status { margin: -10px 0 18px; padding: 8px 10px; border-left: 3px solid #4f8cff; color: #536579; background: rgba(79,140,255,.08); font: 11px "Nimbus Mono", monospace; }
 .ai-status.error { border-left-color: #b6535c; color: #8f454d; background: rgba(182,83,92,.08); }
 .ai-privacy-note { margin: 16px 0; padding: 11px; border-radius: 4px; color: #626c77; background: #e5e8e8; font-size: 11px; line-height: 1.5; }

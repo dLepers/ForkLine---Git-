@@ -68,6 +68,20 @@ test('runs commit analysis through an ephemeral read-only Codex process with iso
   assert.equal(invocation.args.at(-1), '-');
 });
 
+test('runs a free-form Codex agent in the repository with Git write access', async () => {
+  let invocation;
+  const service = new CodexService({ run: async (executable, args, options) => {
+    invocation = { executable, args, options };
+    return { stdout: 'Deux commits fonctionnels créés.', stderr: '' };
+  } });
+  assert.deepEqual(await service.agent('/usr/bin/codex', 'commit en séparant les fonctionnalités', { reasoningEffort: 'medium' }, { cwd: '/repository', timeout: 60_000 }), { message: 'Deux commits fonctionnels créés.' });
+  assert.match(invocation.args.join(' '), /--dangerously-bypass-approvals-and-sandbox/);
+  assert.equal(invocation.args.includes('--output-schema'), false);
+  assert.equal(invocation.args.includes('--ignore-user-config'), false);
+  assert.equal(invocation.options.cwd, '/repository');
+  assert.equal(invocation.options.input, 'commit en séparant les fonctionnalités');
+});
+
 test('stores analyses by hashed repository identity and supports deletion and full clearing', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'forkline-codex-store-'));
   const file = path.join(directory, 'analyses.json');

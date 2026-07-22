@@ -3,6 +3,7 @@ const { promisify } = require('node:util');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
+const { createHash } = require('node:crypto');
 
 const execFileAsync = promisify(execFile);
 const FIELD = '\x1f';
@@ -805,6 +806,22 @@ class GitService {
     }
   }
 
+  async stashHash(ref, expectedHash = null) {
+    this.validateStashRef(ref);
+    const hash = (await this.run(['rev-parse', '--verify', `${ref}^{commit}`])).trim();
+    if (expectedHash && hash !== expectedHash) throw new GitError('Le stash sélectionné a changé depuis son affichage.');
+    return hash;
+  }
+
+  async stashAnalysisData(ref, expectedHash = null) {
+    await this.stashHash(ref, expectedHash);
+    const [metadata, diff] = await Promise.all([
+      this.run(['show', '-s', '--format=fuller', '--no-ext-diff', ref]),
+      this.stashDiff(ref),
+    ]);
+    return `${metadata.trim()}\n\n${diff}`;
+  }
+
   async renameStash(ref, message) {
     this.validateStashRef(ref);
     const cleanMessage = String(message || '').trim();
@@ -890,6 +907,42 @@ class GitService {
     if (content === null) return 'Fichier binaire ou illisible.';
     const lines = content.split('\n').slice(0, 500);
     return [`diff --git a/${filePath} b/${filePath}`, 'new file mode 100644', '--- /dev/null', `+++ b/${filePath}`, `@@ -0,0 +1,${lines.length} @@`, ...lines.map((line) => `+${line}`)].join('\n');
+  }
+
+  async untrackedAnalysisPreview(filePath, maximumBytes = 64 * 1024) {
+    this.assertSafeRelativePath(filePath);
+    const absolutePath = path.resolve(this.repoPath, filePath);
+    let handle;
+    try {
+      handle = await fs.open(absolutePath, 'r');
+      const buffer = Buffer.alloc(maximumBytes);
+      const { bytesRead } = await handle.read(buffer, 0, maximumBytes, 0);
+      const content = buffer.subarray(0, bytesRead);
+      if (content.includes(0)) return `diff --git a/${filePath} b/${filePath}\nFichier non suivi binaire (${bytesRead === maximumBytes ? 'aperçu limité' : `${bytesRead} octets`}).`;
+      const text = content.toString('utf8');
+      const lines = text.split('\n').slice(0, 500);
+      const suffix = bytesRead === maximumBytes ? '\n[aperçu du fichier non suivi tronqué par Forkline]' : '';
+      return [`diff --git a/${filePath} b/${filePath}`, 'new file mode 100644', '--- /dev/null', `+++ b/${filePath}`, `@@ -0,0 +1,${lines.length} @@`, ...lines.map((line) => `+${line}`)].join('\n') + suffix;
+    } catch {
+      return `diff --git a/${filePath} b/${filePath}\nFichier non suivi illisible.`;
+    } finally {
+      await handle?.close();
+    }
+  }
+
+  async worktreeAnalysisData() {
+    const status = await this.status();
+    if (!status.files.length) throw new GitError('Le travail en cours ne contient aucune modification à analyser.');
+    const [head, staged, unstaged] = await Promise.all([
+      this.run(['show', '-s', '--format=fuller', 'HEAD']).catch(() => 'Dépôt sans commit'),
+      this.run(['diff', '--cached', '--no-ext-diff', '--find-renames', '--find-copies', '--stat', '--patch', '--unified=3']),
+      this.run(['diff', '--no-ext-diff', '--find-renames', '--find-copies', '--stat', '--patch', '--unified=3']),
+    ]);
+    const untrackedFiles = status.files.filter((file) => file.untracked).map((file) => file.path).sort();
+    const untracked = await Promise.all(untrackedFiles.map((file) => this.untrackedAnalysisPreview(file)));
+    const fileState = status.files.map((file) => `${file.index}${file.workingTree} ${file.path}${file.originalPath ? ` <- ${file.originalPath}` : ''}`).join('\n');
+    const data = `TRAVAIL EN COURS (WIP)\n\nCOMMIT DE BASE\n${head.trim()}\n\nÉTAT DES FICHIERS\n${fileState}\n\nMODIFICATIONS INDEXÉES\n${staged || 'Aucune'}\n\nMODIFICATIONS NON INDEXÉES\n${unstaged || 'Aucune'}\n\nFICHIERS NON SUIVIS\n${untracked.join('\n\n') || 'Aucun'}`;
+    return { data, fingerprint: createHash('sha256').update(data).digest('hex'), fileCount: status.files.length };
   }
 
   assertSafeRelativePath(filePath) {

@@ -501,6 +501,24 @@ test('searches commits and exposes file history, blame and revision comparison',
   assert.match(analysisData, /\+Historical line/);
 });
 
+test('builds a stable WIP analysis payload from staged, unstaged and untracked changes', async () => {
+  await fs.appendFile(path.join(repository, 'README.md'), 'Unstaged WIP change\n');
+  await fs.writeFile(path.join(repository, 'staged-wip.txt'), 'Staged WIP change\n');
+  await git.stage(['staged-wip.txt']);
+  await fs.writeFile(path.join(repository, 'untracked-wip.txt'), 'Untracked WIP change\n');
+
+  const first = await git.worktreeAnalysisData();
+  const repeated = await git.worktreeAnalysisData();
+  assert.equal(first.fingerprint, repeated.fingerprint);
+  assert.equal(first.fileCount, 3);
+  assert.match(first.data, /MODIFICATIONS INDEXÉES[\s\S]*Staged WIP change/);
+  assert.match(first.data, /MODIFICATIONS NON INDEXÉES[\s\S]*Unstaged WIP change/);
+  assert.match(first.data, /FICHIERS NON SUIVIS[\s\S]*Untracked WIP change/);
+
+  await fs.appendFile(path.join(repository, 'untracked-wip.txt'), 'Fingerprint change\n');
+  assert.notEqual((await git.worktreeAnalysisData()).fingerprint, first.fingerprint);
+});
+
 test('deletes a selected non-head commit while preserving its descendants', async () => {
   await fs.appendFile(path.join(repository, 'README.md'), 'Commit to delete\n');
   await git.stage(['README.md']);
@@ -799,6 +817,12 @@ test('creates, displays, applies and drops a stash for selected files', async ()
   assert.equal(stashCommits.some((commit) => commit.stashRole === 'index'), true);
   assert.equal(stashCommits.some((commit) => commit.stashRole === 'untracked'), true);
   assert.match(await git.stashDiff('stash@{0}'), /Stashed change/);
+  const stashHash = snapshot.stashes[0].hash;
+  assert.equal(await git.stashHash('stash@{0}', stashHash), stashHash);
+  const stashAnalysisData = await git.stashAnalysisData('stash@{0}', stashHash);
+  assert.match(stashAnalysisData, /Travail sélectionné/);
+  assert.match(stashAnalysisData, /Stashed change/);
+  await assert.rejects(() => git.stashAnalysisData('stash@{0}', '0000000000000000000000000000000000000000'), /stash sélectionné a changé/);
 
   const restored = await git.restoreStash('stash@{0}', 'apply');
   assert.equal(restored.conflicted, false);

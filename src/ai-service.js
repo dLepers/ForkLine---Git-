@@ -48,11 +48,15 @@ function normalizeAiSettings(value = {}) {
 }
 
 function jsonFromText(value) {
+  return validateAnalysis(rawJsonFromText(value));
+}
+
+function rawJsonFromText(value) {
   const source = String(value || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   const start = source.indexOf('{');
   const end = source.lastIndexOf('}');
   if (start < 0 || end < start) throw new Error('Le fournisseur IA a renvoyé une analyse illisible.');
-  return validateAnalysis(JSON.parse(source.slice(start, end + 1)));
+  return JSON.parse(source.slice(start, end + 1));
 }
 
 function validateAnalysis(value) {
@@ -121,19 +125,17 @@ class CloudAiService {
       .sort((left, right) => left.name.localeCompare(right.name));
   }
 
-  async analyze(commitData, settings, apiKey, schema) {
+  async structured(prompt, settings, apiKey, schema, schemaName = 'forkline_response') {
     const clean = normalizeAiSettings(settings);
     if (!apiKey) throw new Error('Ajoutez une clé API pour ce fournisseur avant de lancer une analyse.');
     if (!clean.model) throw new Error('Choisissez ou saisissez un modèle avant de lancer une analyse.');
-    const truncated = commitData.length > MAX_COMMIT_INPUT;
-    const prompt = providerPrompt(commitData.slice(0, MAX_COMMIT_INPUT), clean, truncated);
     const responseSchema = { ...schema };
     delete responseSchema.$schema;
     let url;
     let body;
     if (clean.provider === 'openai') {
       url = `${clean.baseUrl}/responses`;
-      body = { model: clean.model, input: prompt, max_output_tokens: clean.maxOutputTokens, store: false, text: { format: { type: 'json_schema', name: 'commit_analysis', schema: responseSchema, strict: true } } };
+      body = { model: clean.model, input: prompt, max_output_tokens: clean.maxOutputTokens, store: false, text: { format: { type: 'json_schema', name: schemaName, schema: responseSchema, strict: true } } };
       body.reasoning = { effort: clean.reasoningEffort };
     } else if (clean.provider === 'anthropic') {
       url = `${clean.baseUrl}/messages`;
@@ -143,7 +145,7 @@ class CloudAiService {
       body = { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: clean.maxOutputTokens, responseMimeType: 'application/json', responseJsonSchema: responseSchema } };
     } else {
       url = `${clean.baseUrl}/chat/completions`;
-      body = { model: clean.model, max_tokens: clean.maxOutputTokens, messages: [{ role: 'user', content: prompt }], response_format: { type: 'json_schema', json_schema: { name: 'commit_analysis', strict: true, schema: responseSchema } } };
+      body = { model: clean.model, max_tokens: clean.maxOutputTokens, messages: [{ role: 'user', content: prompt }], response_format: { type: 'json_schema', json_schema: { name: schemaName, strict: true, schema: responseSchema } } };
     }
     const data = await requestJson(url, { method: 'POST', headers: headersFor(clean.provider, apiKey), body: JSON.stringify(body) }, clean.timeoutSeconds, this.fetch);
     const output = clean.provider === 'openai'
@@ -151,7 +153,14 @@ class CloudAiService {
       : clean.provider === 'anthropic' ? data.content?.find((entry) => entry.type === 'text')?.text
         : clean.provider === 'gemini' ? data.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('')
           : data.choices?.[0]?.message?.content;
-    return { analysis: jsonFromText(output), truncated };
+    return rawJsonFromText(output);
+  }
+
+  async analyze(commitData, settings, apiKey, schema) {
+    const clean = normalizeAiSettings(settings);
+    const truncated = commitData.length > MAX_COMMIT_INPUT;
+    const prompt = providerPrompt(commitData.slice(0, MAX_COMMIT_INPUT), clean, truncated);
+    return { analysis: validateAnalysis(await this.structured(prompt, clean, apiKey, schema, 'commit_analysis')), truncated };
   }
 }
 
@@ -180,4 +189,4 @@ class AiSecretStore {
   }
 }
 
-module.exports = { AiSecretStore, CloudAiService, DEFAULT_AI_SETTINGS, PROVIDERS, jsonFromText, normalizeAiSettings, providerPrompt, requestJson, validateAnalysis };
+module.exports = { AiSecretStore, CloudAiService, DEFAULT_AI_SETTINGS, PROVIDERS, jsonFromText, normalizeAiSettings, providerPrompt, rawJsonFromText, requestJson, validateAnalysis };

@@ -62,9 +62,9 @@ function runCommand(executable, args, options = {}) {
     child.on('error', (error) => finish(error));
     child.on('close', (code, signal) => {
       if (settled) return;
-      if (signal) return finish(new Error('L’analyse Codex a dépassé le délai autorisé.'));
+      if (signal) return finish(new Error('L’opération Codex a dépassé le délai autorisé.'));
       if (code !== 0) {
-        const error = new Error('Codex n’a pas pu analyser ce commit.');
+        const error = new Error('Codex n’a pas pu terminer l’opération.');
         error.details = stderr.trim() || stdout.trim() || `Code de sortie ${code}`;
         return finish(error);
       }
@@ -130,6 +130,38 @@ class CodexService {
     const end = stdout.lastIndexOf('}');
     if (start < 0 || end < start) throw new Error('Codex a renvoyé une analyse illisible.');
     return { analysis: JSON.parse(stdout.slice(start, end + 1)), truncated };
+  }
+
+  async structured(executable, prompt, settings, options) {
+    const cleanSettings = normalizeCodexSettings(settings);
+    const args = [
+      'exec', '--sandbox', 'read-only', '--ephemeral', '--ignore-user-config', '--skip-git-repo-check',
+      '--color', 'never', '--output-schema', options.schemaPath,
+      '-c', `model_reasoning_effort="${cleanSettings.reasoningEffort}"`,
+    ];
+    if (cleanSettings.model) args.push('--model', cleanSettings.model);
+    args.push('-');
+    const { stdout } = await this.run(executable, args, { cwd: options.cwd, input: prompt, timeout: options.timeout });
+    const start = stdout.indexOf('{');
+    const end = stdout.lastIndexOf('}');
+    if (start < 0 || end < start) throw new Error('Codex a renvoyé un plan illisible.');
+    return JSON.parse(stdout.slice(start, end + 1));
+  }
+
+  async agent(executable, prompt, settings, options) {
+    const cleanSettings = normalizeCodexSettings(settings);
+    const instruction = String(prompt || '').trim();
+    if (!instruction || instruction.length > 20_000 || /\0/.test(instruction)) throw new Error('L’instruction Codex doit contenir entre 1 et 20 000 caractères.');
+    const args = [
+      'exec', '--dangerously-bypass-approvals-and-sandbox', '--ephemeral',
+      '--color', 'never', '-C', options.cwd,
+      '-c', `model_reasoning_effort="${cleanSettings.reasoningEffort}"`,
+    ];
+    if (cleanSettings.model) args.push('--model', cleanSettings.model);
+    args.push('-');
+    const { stdout, stderr } = await this.run(executable, args, { cwd: options.cwd, input: instruction, timeout: options.timeout });
+    const message = stdout.trim() || stderr.trim();
+    return { message: message || 'Codex a terminé sans message final.' };
   }
 }
 

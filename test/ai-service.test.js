@@ -37,6 +37,13 @@ test('uses OpenAI Responses structured output without server-side response stora
   assert.equal(request.body.text.format.type, 'json_schema');
 });
 
+test('returns a generic structured plan for future AI tools', async () => {
+  const plan = { action: 'commit', summary: 'Créer le commit.', confirmation: 'Confirmer.', revision: '', stashRef: '', branch: '', startPoint: '', message: 'feat: test', stageAll: true };
+  const service = new CloudAiService({ fetch: async () => response({ output_text: JSON.stringify(plan) }) });
+  const schema = { type: 'object', properties: { action: { type: 'string' } }, required: ['action'], additionalProperties: true };
+  assert.deepEqual(await service.structured('Planifie', { provider: 'openai', model: 'gpt-test' }, 'secret', schema, 'git_action_plan'), plan);
+});
+
 test('supports Claude, Gemini and OpenAI-compatible response shapes', async () => {
   const cases = [
     [{ provider: 'anthropic', model: 'claude-test' }, { content: [{ type: 'text', text: JSON.stringify(analysis) }] }, '/messages'],
