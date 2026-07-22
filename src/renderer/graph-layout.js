@@ -8,7 +8,7 @@
     return freeLane === -1 ? lanes.length : freeLane;
   }
 
-  function compactLanes(lanes, laneColors, laneVisibility) {
+  function compactLanes(lanes, laneColors, laneVisibility, laneLineColors) {
     const transitions = [];
     const transitionColors = [];
     let target = 0;
@@ -17,13 +17,15 @@
       while (target < source && lanes[target] != null) target += 1;
       if (target < source) {
         transitions.push({ from: source, to: target, hash: lanes[source] });
-        transitionColors.push(laneColors[source]);
+        transitionColors.push(laneLineColors[source] ?? laneColors[source]);
         lanes[target] = lanes[source];
         laneColors[target] = laneColors[source];
         laneVisibility[target] = laneVisibility[source];
+        laneLineColors[target] = laneLineColors[source];
         lanes[source] = null;
         laneColors[source] = null;
         laneVisibility[source] = false;
+        laneLineColors[source] = null;
       }
       target += 1;
     }
@@ -31,6 +33,7 @@
       lanes.pop();
       laneColors.pop();
       laneVisibility.pop();
+      laneLineColors.pop();
     }
     return { transitions, transitionColors };
   }
@@ -122,6 +125,7 @@
     const lanes = [];
     const laneColors = [];
     const laneVisibility = [];
+    const laneLineColors = [];
     const rows = [];
     let laneCount = 1;
     let nextColor = 0;
@@ -159,6 +163,7 @@
       lanes[0] = options.headHash;
       laneColors[0] = nextColor;
       laneVisibility[0] = false;
+      laneLineColors[0] = null;
       nextColor += 1;
     }
 
@@ -176,6 +181,7 @@
         lanes[lane] = commit.hash;
         laneColors[lane] = nextColor;
         laneVisibility[lane] = true;
+        laneLineColors[lane] = nextColor;
         nextColor += 1;
         decision = "Création d'une nouvelle lane (tête de branche)";
       }
@@ -183,6 +189,7 @@
       const before = [...lanes];
       const beforeColors = [...laneColors];
       const beforeVisible = [...laneVisibility];
+      const beforeLineColors = [...laneLineColors];
       const laneColor = laneColors[lane];
 
       // La lane du commit courant se libère : elle sera immédiatement
@@ -190,6 +197,7 @@
       lanes[lane] = null;
       laneColors[lane] = null;
       laneVisibility[lane] = false;
+      laneLineColors[lane] = null;
       const connections = [];
       const joins = [];
 
@@ -200,10 +208,12 @@
           lanes[target] = null;
           laneColors[target] = null;
           laneVisibility[target] = false;
+          laneLineColors[target] = null;
           lanes[lane] = parent;
           laneColors[lane] = laneColor;
           laneVisibility[lane] = true;
-          connections.push({ from: lane, to: lane, parentIndex, fromColor: laneColor, toColor: laneColor });
+          laneLineColors[lane] = laneColor;
+          connections.push({ from: lane, to: lane, parentIndex, fromColor: laneColor, toColor: laneColor, color: laneColor });
           joins.push({ from: target, to: lane, hash: parent, color: joiningColor });
           return;
         }
@@ -215,17 +225,30 @@
             lanes[target] = parent;
             laneColors[target] = laneColor;
             laneVisibility[target] = true;
+            laneLineColors[target] = laneColor;
           } else {
             // Le parent secondaire utilise la colonne libre la plus proche.
             target = newLane(lanes);
             lanes[target] = parent;
             laneColors[target] = nextColor;
             laneVisibility[target] = true;
+            laneLineColors[target] = nextColor;
             nextColor += 1;
           }
         }
+        const connectionColor = parentIndex === 0
+          ? laneColor
+          : (laneLineColors[target] ?? laneColors[target]);
         laneVisibility[target] = true;
-        connections.push({ from: lane, to: target, parentIndex, fromColor: laneColor, toColor: laneColors[target] });
+        laneLineColors[target] = connectionColor;
+        connections.push({
+          from: lane,
+          to: target,
+          parentIndex,
+          fromColor: laneColor,
+          toColor: laneColors[target],
+          color: connectionColor,
+        });
       });
 
       // Une connexion oblique doit atteindre sa lane parente avant toute
@@ -234,7 +257,7 @@
       // prochaine ligne ne portant que des continuités verticales.
       const canCompact = connections.every(({ from, to }) => from === to);
       const { transitions, transitionColors } = canCompact
-        ? compactLanes(lanes, laneColors, laneVisibility)
+        ? compactLanes(lanes, laneColors, laneVisibility, laneLineColors)
         : { transitions: [], transitionColors: [] };
       transitions.forEach((transition) => debugLog(debug, 'LANE_MOVE', {
         row: rowIndex,
@@ -249,6 +272,7 @@
       const after = [...lanes];
       const afterColors = [...laneColors];
       const afterVisible = [...laneVisibility];
+      const afterLineColors = [...laneLineColors];
       const nextLane = commit.parents.length ? after.indexOf(commit.parents[0]) : -1;
       const parentLanes = commit.parents.map((parent) => ({ hash: parent, lane: after.indexOf(parent) }));
       const childLanes = (children.get(commit.hash) || []).map((child) => ({
@@ -294,9 +318,11 @@
         before,
         beforeColors,
         beforeVisible,
+        beforeLineColors,
         after,
         afterColors,
         afterVisible,
+        afterLineColors,
         transitions,
         transitionColors,
         connections,

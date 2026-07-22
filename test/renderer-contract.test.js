@@ -34,6 +34,49 @@ test('all renderer calls are exposed by the preload bridge', () => {
   assert.deepEqual(missing, []);
 });
 
+test('the main workspace remains usable on narrow screens', () => {
+  assert.match(main, /minWidth: 760/);
+  assert.match(styles, /\.workspace \{[^}]*--sidebar-width: clamp\(190px, 17vw, 250px\);[^}]*--inspector-width: clamp\(270px, 34vw, 560px\);[^}]*grid-template-columns: var\(--sidebar-width\) minmax\(0, 1fr\) var\(--inspector-width\)/);
+  const mediumLayout = styles.match(/@media \(max-width: 1180px\) \{[\s\S]*?(?=\n\})/)?.[0] || '';
+  assert.match(mediumLayout, /\.toolbar \.tool-button span \{ display: none; \}/);
+  assert.match(mediumLayout, /\.toolbar-context \{[^}]*flex: 1 1 180px/);
+  const narrowLayout = styles.match(/@media \(max-width: 900px\) \{[\s\S]*$/)?.[0] || '';
+  assert.match(narrowLayout, /\.workspace \{ --sidebar-width: 165px; --inspector-width: 240px; \}/);
+  assert.match(narrowLayout, /\.toolbar-context \{ display: none; \}/);
+  assert.match(narrowLayout, /\.toolbar-actions \{[^}]*width: 100%/);
+  assert.match(narrowLayout, /\.commit-author, \.commit-date,[^\n]*display: none/);
+  assert.match(styles, /dialog \{[^}]*max-width: calc\(100vw - 24px\)/);
+});
+
+test('the sidebar and inspector columns can be resized and reset', () => {
+  assert.match(html, /data-workspace-resizer="sidebar"[^>]*role="separator"[^>]*aria-orientation="vertical"/);
+  assert.match(html, /data-workspace-resizer="inspector"[^>]*role="separator"[^>]*aria-orientation="vertical"/);
+  assert.match(styles, /\.workspace-resizer \{[^}]*cursor: col-resize[^}]*touch-action: none/);
+  assert.match(styles, /\.sidebar-resizer \{ left: var\(--sidebar-width\); \}/);
+  assert.match(styles, /\.inspector-resizer \{ left: calc\(100% - var\(--inspector-width\)\); \}/);
+  assert.match(renderer, /workspaceColumns: loadWorkspaceColumns\(\)/);
+  assert.match(renderer, /localStorage\.setItem\('forkline:workspace-columns'/);
+  assert.match(renderer, /function applyWorkspaceColumnWidths\(\)/);
+  assert.match(renderer, /minimumContentWidth = clamp\(width \* 0\.32, 300, 420\)/);
+  assert.match(renderer, /function bindWorkspaceColumnResizers\(\)[\s\S]*addEventListener\('pointerdown'/);
+  assert.match(renderer, /\['ArrowLeft', 'ArrowRight', 'Home', 'End'\]/);
+  assert.match(renderer, /addEventListener\('dblclick', \(\) => resetWorkspaceColumnWidth\(column\)\)/);
+  assert.match(renderer, /window\.addEventListener\('resize', applyWorkspaceColumnWidths\)/);
+  assert.match(renderer, /bindWorkspaceColumnResizers\(\)/);
+});
+
+test('scrollable panels share a compact responsive scrollbar theme', () => {
+  assert.match(styles, /--scrollbar-thumb: #536477/);
+  assert.match(styles, /--scrollbar-thumb-hover: #71859a/);
+  assert.match(styles, /:is\(\.nav-sections, \.history-view,[^}]*scrollbar-width: thin;[^}]*scrollbar-gutter: stable/);
+  assert.match(styles, /:is\(\.nav-sections, \.history-view,[^}]*::-webkit-scrollbar \{ width: 8px; height: 8px; \}/);
+  assert.match(styles, /::-webkit-scrollbar-thumb \{[^}]*border: 2px solid transparent;[^}]*background-clip: padding-box/);
+  assert.match(styles, /::-webkit-scrollbar-thumb:hover \{ background-color: var\(--scrollbar-thumb-hover\); \}/);
+  assert.match(styles, /\.history-view \{[^}]*overflow-y: auto;[^}]*overflow-x: hidden/);
+  const narrowLayout = styles.match(/@media \(max-width: 900px\) \{[\s\S]*$/)?.[0] || '';
+  assert.match(narrowLayout, /::-webkit-scrollbar \{ width: 6px; height: 6px; \}/);
+});
+
 test('all preload IPC invocations have a main-process handler', () => {
   const invokedChannels = new Set(captures(preload, /invoke\('([^']+)'/g));
   const handledChannels = new Set(captures(main, /handle\('([^']+)'/g));
@@ -99,6 +142,15 @@ test('the working tree row displays a GitKraken-style WIP summary by change type
   assert.match(renderer, /class="wip-stat deleted"/);
   assert.match(renderer, /renderWorkingTreeSummary\(state\.snapshot\.status\.files\)/);
   assert.doesNotMatch(renderer, /working-tree-badge-text/);
+});
+
+test('the WIP inspector closes when the repository becomes clean', () => {
+  const snapshotRenderer = renderer.match(/function applySnapshot[\s\S]*?(?=\nfunction renderBranches)/)?.[0] || '';
+  const updateRenderer = renderer.match(/async function handleRepositoryUpdate[\s\S]*?(?=\nasync function openRepository)/)?.[0] || '';
+  assert.match(snapshotRenderer, /const worktreeWasVisible = !\$\('#worktree-detail'\)\.classList\.contains\('hidden'\)/);
+  assert.match(snapshotRenderer, /!snapshot\.status\.files\.length && !snapshot\.operation[\s\S]*state\.selectedFile = null[\s\S]*state\.activeWipAnalysis = null/);
+  assert.match(snapshotRenderer, /worktreeWasVisible && !snapshot\.status\.files\.length[^\n]*showInspector\('#inspector-empty'\)/);
+  assert.match(updateRenderer, /worktreeWasOpen && snapshot\.status\.files\.length[\s\S]*showInspector\('#worktree-detail'\)[\s\S]*else if \(worktreeWasOpen\)[\s\S]*showInspector\('#inspector-empty'\)/);
 });
 
 test('resolved conflicts leave conflict mode while keeping the Git operation available', () => {
@@ -210,7 +262,7 @@ test('contextual tag creation uses a shared validated dialog and selected revisi
 test('stash rows preserve only graph lanes that connect to a visible node above', () => {
   const stashRenderer = renderer.match(/function renderStashGraphRow[\s\S]*?(?=\nfunction renderWorkingTreeRow)/)?.[0] || '';
   assert.match(stashRenderer, /insertionRow\.before\.map/);
-  assert.match(stashRenderer, /insertionRow\.beforeColors\[lane\]/);
+  assert.match(stashRenderer, /insertionRow\.beforeLineColors\[lane\] \?\? insertionRow\.beforeColors\[lane\]/);
   assert.match(stashRenderer, /lane !== insertionRow\.lane \|\| insertionRow\.hasVisibleChild \|\| connectsToWorkingTree/);
   assert.match(stashRenderer, /insertionRow\.beforeVisible\[lane\] \|\| connectsToWorkingTree/);
   assert.match(stashRenderer, /if \(!visibleAbove \|\| !continuesAbove\) return ''/);
@@ -225,6 +277,10 @@ test('active branch lines stop at HEAD unless a visible node exists above it', (
   assert.match(graphRenderer, /const visibleAbove = row\.beforeVisible\[lane\] \|\| connectsToWorkingTree/);
   assert.match(graphRenderer, /if \(value && visibleAbove && continuesAbove\)/);
   assert.match(graphRenderer, /if \(value && row\.afterVisible\[lane\] && continuesThroughRow && !transitionTargets\.has\(lane\)\)/);
+  assert.match(graphRenderer, /row\.beforeLineColors\[lane\] \?\? row\.beforeColors\[lane\]/);
+  assert.match(graphRenderer, /row\.afterLineColors\[lane\] \?\? row\.afterColors\[lane\]/);
+  assert.match(graphRenderer, /color: connectionColor/);
+  assert.match(graphRenderer, /graphColor\(connectionColor\)/);
   assert.match(renderer, /renderStashGraphRow\(placement, graph\.rows\[index\],[^\n]*graph\.workingTreeNode\)/);
 });
 
@@ -234,6 +290,12 @@ test('lane compaction curves occupy the lower half-row instead of folding at its
   assert.match(graphRenderer, /!transitionTargets\.has\(lane\)/);
   assert.match(graphRenderer, /class="graph-transition" d="M \$\{graphX\(from\)\} \$\{centerY\} C/);
   assert.doesNotMatch(graphRenderer, /class="graph-transition" d="M \$\{graphX\(from\)\} 44 C/);
+});
+
+test('a newly reached parent lane is drawn by its branch curve without a phantom vertical segment', () => {
+  const graphRenderer = renderer.match(/function renderGraphRow[\s\S]*?(?=\nfunction hideGraphNodeTooltip)/)?.[0] || '';
+  assert.match(graphRenderer, /const continuesThroughRow = row\.beforeVisible\[lane\] \|\| lane === row\.lane/);
+  assert.doesNotMatch(graphRenderer, /const continuesThroughRow = row\.before\[lane\] \|\| lane === row\.lane/);
 });
 
 test('stash rows follow their timestamp and route back to their base commit', () => {
@@ -359,6 +421,33 @@ test('branch context actions follow the selected branch state and update graph v
   assert.match(renderer, /operation === 'hide'[\s\S]*saveHiddenBranchNames\(\);[\s\S]*renderCommits\(\)/);
   assert.match(renderer, /data-graph-branch/);
   assert.match(renderer, /showBranchContextMenu\(label\.dataset\.graphBranch/);
+});
+
+test('selecting a sidebar branch centers its commit in the graph', () => {
+  const branchSwitcher = renderer.match(/async function switchBranch[\s\S]*?(?=\nasync function refresh)/)?.[0] || '';
+  assert.match(branchSwitcher, /name === state\.snapshot\.head\) return focusBranchInGraph\(name\)/);
+  assert.match(branchSwitcher, /applySnapshot\(result\);[\s\S]*focusBranchInGraph\(name\)/);
+  assert.match(branchSwitcher, /function focusBranchInGraph\(name, behavior = 'smooth'\)/);
+  assert.match(branchSwitcher, /setView\('history'\)/);
+  assert.match(branchSwitcher, /candidate\.dataset\.hash === branch\.hash/);
+  assert.match(branchSwitcher, /state\.historyQuery = '';[\s\S]*renderCommits\(\)/);
+  assert.match(branchSwitcher, /row\.scrollIntoView\(\{ behavior, block: 'center', inline: 'nearest' \}\)/);
+  assert.match(renderer, /branch-item[^\n]*addEventListener\('click', \(\) => switchBranch\(button\.dataset\.branch\)\)/);
+});
+
+test('selecting a sidebar stash keeps the graph visible and centers its row', () => {
+  const stashSelector = renderer.match(/function selectStash[\s\S]*?(?=\nasync function runStashAction)/)?.[0] || '';
+  assert.match(stashSelector, /state\.selectedCommit = null/);
+  assert.match(stashSelector, /renderStashDetail\(stash\);[\s\S]*focusStashInGraph\(ref\)/);
+  assert.match(stashSelector, /function focusStashInGraph\(ref, behavior = 'smooth'\)/);
+  assert.match(stashSelector, /state\.hiddenStashHashes\.delete\(stash\.hash\)/);
+  assert.match(stashSelector, /state\.historyQuery = ''/);
+  assert.match(stashSelector, /setView\('history'\)[\s\S]*renderStashes\(\);[\s\S]*renderCommits\(\)/);
+  assert.match(stashSelector, /candidate\.dataset\.stashRef === ref/);
+  assert.match(stashSelector, /row\.scrollIntoView\(\{ behavior, block: 'center', inline: 'nearest' \}\)/);
+  assert.doesNotMatch(stashSelector, /history-view'\)\.innerHTML/);
+  assert.doesNotMatch(stashSelector, /window\.forkline\.stashDiff/);
+  assert.match(renderer, /stash-row\$\{stash\.ref === state\.selectedStash \? ' selected' : ''\}/);
 });
 
 test('solo mode isolates local and remote sidebars and can restore every branch', () => {

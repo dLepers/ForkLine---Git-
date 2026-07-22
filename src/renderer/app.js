@@ -6,6 +6,7 @@ const state = {
   selectedStash: null,
   hiddenStashHashes: loadHiddenStashHashes(),
   hiddenBranchNames: loadHiddenBranchNames(),
+  workspaceColumns: loadWorkspaceColumns(),
   soloBranchName: null,
   busy: false,
   pendingSnapshot: null,
@@ -53,6 +54,103 @@ function loadHiddenBranchNames() {
 
 function saveHiddenBranchNames() {
   localStorage.setItem('forkline:hidden-branches', JSON.stringify([...state.hiddenBranchNames]));
+}
+
+function loadWorkspaceColumns() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('forkline:workspace-columns') || '{}');
+    return {
+      sidebar: Number.isFinite(saved.sidebar) ? saved.sidebar : null,
+      inspector: Number.isFinite(saved.inspector) ? saved.inspector : null,
+    };
+  } catch {
+    return { sidebar: null, inspector: null };
+  }
+}
+
+function saveWorkspaceColumns() {
+  localStorage.setItem('forkline:workspace-columns', JSON.stringify(state.workspaceColumns));
+}
+
+function clamp(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function applyWorkspaceColumnWidths() {
+  const workspace = $('#workspace');
+  if (!workspace || workspace.classList.contains('hidden')) return;
+  const width = workspace.clientWidth;
+  const minimumContentWidth = clamp(width * 0.32, 300, 420);
+  const currentSidebar = $('.sidebar').offsetWidth;
+  const currentInspector = $('.inspector').offsetWidth;
+  let sidebar = state.workspaceColumns.sidebar ?? currentSidebar;
+  let inspector = state.workspaceColumns.inspector ?? currentInspector;
+  sidebar = clamp(sidebar, 150, Math.max(150, width - 220 - minimumContentWidth));
+  inspector = clamp(inspector, 220, Math.max(220, width - sidebar - minimumContentWidth));
+  sidebar = clamp(sidebar, 150, Math.max(150, width - inspector - minimumContentWidth));
+  if (Number.isFinite(state.workspaceColumns.sidebar)) {
+    state.workspaceColumns.sidebar = Math.round(sidebar);
+    workspace.style.setProperty('--sidebar-width', `${state.workspaceColumns.sidebar}px`);
+  }
+  if (Number.isFinite(state.workspaceColumns.inspector)) {
+    state.workspaceColumns.inspector = Math.round(inspector);
+    workspace.style.setProperty('--inspector-width', `${state.workspaceColumns.inspector}px`);
+  }
+  $('[data-workspace-resizer="sidebar"]').setAttribute('aria-valuenow', String(Math.round(sidebar)));
+  $('[data-workspace-resizer="inspector"]').setAttribute('aria-valuenow', String(Math.round(inspector)));
+  saveWorkspaceColumns();
+}
+
+function setWorkspaceColumnWidth(column, requestedWidth) {
+  state.workspaceColumns = {
+    sidebar: $('.sidebar').offsetWidth,
+    inspector: $('.inspector').offsetWidth,
+    [column]: requestedWidth,
+  };
+  applyWorkspaceColumnWidths();
+}
+
+function resetWorkspaceColumnWidth(column) {
+  state.workspaceColumns[column] = null;
+  $('#workspace').style.removeProperty(column === 'sidebar' ? '--sidebar-width' : '--inspector-width');
+  saveWorkspaceColumns();
+  requestAnimationFrame(applyWorkspaceColumnWidths);
+}
+
+function bindWorkspaceColumnResizers() {
+  $$('[data-workspace-resizer]').forEach((resizer) => {
+    const column = resizer.dataset.workspaceResizer;
+    resizer.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      const bounds = $('#workspace').getBoundingClientRect();
+      document.body.classList.add('resizing-workspace');
+      resizer.setPointerCapture?.(event.pointerId);
+      const move = (moveEvent) => setWorkspaceColumnWidth(column, column === 'sidebar'
+        ? moveEvent.clientX - bounds.left
+        : bounds.right - moveEvent.clientX);
+      const stop = () => {
+        document.body.classList.remove('resizing-workspace');
+        document.removeEventListener('pointermove', move);
+        document.removeEventListener('pointerup', stop);
+        document.removeEventListener('pointercancel', stop);
+      };
+      document.addEventListener('pointermove', move);
+      document.addEventListener('pointerup', stop);
+      document.addEventListener('pointercancel', stop);
+    });
+    resizer.addEventListener('keydown', (event) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      if (event.key === 'Home') return setWorkspaceColumnWidth(column, column === 'sidebar' ? 150 : 620);
+      if (event.key === 'End') return setWorkspaceColumnWidth(column, column === 'sidebar' ? 380 : 220);
+      const direction = event.key === 'ArrowRight' ? 1 : -1;
+      const currentWidth = column === 'sidebar' ? $('.sidebar').offsetWidth : $('.inspector').offsetWidth;
+      setWorkspaceColumnWidth(column, currentWidth + direction * (column === 'sidebar' ? 16 : -16));
+    });
+    resizer.addEventListener('dblclick', () => resetWorkspaceColumnWidth(column));
+  });
+  window.addEventListener('resize', applyWorkspaceColumnWidths);
 }
 
 function graphVisibility() {
@@ -164,12 +262,17 @@ function hasActiveConflicts(snapshot = state.snapshot) {
 function applySnapshot(snapshot, options = {}) {
   if (snapshot.repositoryRevision && state.snapshot?.repositoryRevision >= snapshot.repositoryRevision) return false;
   const conflictWasVisible = !$('#conflict-detail').classList.contains('hidden');
+  const worktreeWasVisible = !$('#worktree-detail').classList.contains('hidden');
   if (state.snapshot?.repository && state.snapshot.repository !== snapshot.repository) {
     state.activeCommitAnalysis = null;
     state.activeStashAnalysis = null;
     state.activeWipAnalysis = null;
   }
   state.snapshot = snapshot;
+  if (!snapshot.status.files.length && !snapshot.operation) {
+    state.selectedFile = null;
+    state.activeWipAnalysis = null;
+  }
   state.compareSelection = state.compareSelection.filter((hash) => snapshot.commits.some((commit) => commit.hash === hash)).slice(-2);
   const repoName = basename(snapshot.repository);
   $('#repo-name').textContent = repoName;
@@ -202,8 +305,10 @@ function applySnapshot(snapshot, options = {}) {
   const activeConflicts = hasActiveConflicts(snapshot);
   if (activeConflicts && !options.preserveInspector) showInspector('#conflict-detail');
   else if (!activeConflicts && (conflictWasVisible || snapshot.operation)) showInspector('#worktree-detail');
+  else if (worktreeWasVisible && !snapshot.status.files.length && !options.preserveInspector) showInspector('#inspector-empty');
   $('#welcome').classList.add('hidden');
   $('#workspace').classList.remove('hidden');
+  applyWorkspaceColumnWidths();
   return true;
 }
 
@@ -1148,20 +1253,20 @@ function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTre
     const visibleAbove = row.beforeVisible[lane] || connectsToWorkingTree;
     if (value && visibleAbove && continuesAbove) {
       const workingStroke = workingTreeNode && lane === workingTreeNode.lane && rowIndex <= workingTreeNode.commitIndex;
-      paths.push(`<path${isStash && lane === row.lane ? ' class="stash-edge"' : ''} d="M ${graphX(lane)} 0 L ${graphX(lane)} ${centerY}" stroke="${workingStroke ? '#24b4c2' : graphColor(row.beforeColors[lane])}"${workingStroke ? ' stroke-dasharray="2 5"' : ''}/> `);
+      paths.push(`<path${isStash && lane === row.lane ? ' class="stash-edge"' : ''} d="M ${graphX(lane)} 0 L ${graphX(lane)} ${centerY}" stroke="${workingStroke ? '#24b4c2' : graphColor(row.beforeLineColors[lane] ?? row.beforeColors[lane])}"${workingStroke ? ' stroke-dasharray="2 5"' : ''}/> `);
     }
   });
   const transitionTargets = new Set((row.transitions || []).map(({ to }) => to));
   row.after.forEach((value, lane) => {
-    const continuesThroughRow = row.before[lane] || lane === row.lane;
+    const continuesThroughRow = row.beforeVisible[lane] || lane === row.lane;
     if (value && row.afterVisible[lane] && continuesThroughRow && !transitionTargets.has(lane)) {
       const workingStroke = workingTreeNode && lane === workingTreeNode.lane && rowIndex < workingTreeNode.commitIndex;
-      paths.push(`<path${isStash && lane === row.lane ? ' class="stash-edge"' : ''} d="M ${graphX(lane)} ${centerY} L ${graphX(lane)} 44" stroke="${workingStroke ? '#24b4c2' : graphColor(row.afterColors[lane])}"${workingStroke ? ' stroke-dasharray="2 5"' : ''}/> `);
+      paths.push(`<path${isStash && lane === row.lane ? ' class="stash-edge"' : ''} d="M ${graphX(lane)} ${centerY} L ${graphX(lane)} 44" stroke="${workingStroke ? '#24b4c2' : graphColor(row.afterLineColors[lane] ?? row.afterColors[lane])}"${workingStroke ? ' stroke-dasharray="2 5"' : ''}/> `);
     }
   });
-  row.connections.forEach(({ from, to, toColor }) => {
+  row.connections.forEach(({ from, to, color: connectionColor }) => {
     if (from === to) return;
-    paths.push(`<path class="graph-curve${isStash && from === row.lane ? ' stash-edge' : ''}" d="M ${graphX(from)} ${centerY} C ${graphX(from)} 34, ${graphX(to)} 32, ${graphX(to)} 44" stroke="${graphColor(toColor)}"/>`);
+    paths.push(`<path class="graph-curve${isStash && from === row.lane ? ' stash-edge' : ''}" d="M ${graphX(from)} ${centerY} C ${graphX(from)} 34, ${graphX(to)} 32, ${graphX(to)} 44" stroke="${graphColor(connectionColor)}"/>`);
   });
   row.joins?.forEach(({ from, to, color: joinColor }) => {
     paths.push(`<path class="graph-curve graph-join" d="M ${graphX(from)} ${centerY} C ${graphX(from)} 34, ${graphX(to)} 32, ${graphX(to)} 44" stroke="${graphColor(joinColor)}"/>`);
@@ -1264,7 +1369,7 @@ function renderStashGraphRow(placement, insertionRow, stashPlacements, stashInde
     const visibleAbove = insertionRow.beforeVisible[lane] || connectsToWorkingTree;
     if (!visibleAbove || !continuesAbove) return '';
     const laneX = laneOffset + 6 + (lane + graphLaneShift) * spacing;
-    const laneStroke = graphColor(insertionRow.beforeColors[lane]);
+    const laneStroke = graphColor(insertionRow.beforeLineColors[lane] ?? insertionRow.beforeColors[lane]);
     return `<path class="stash-lane-continuation" d="M ${laneX} 0 V 44" stroke="${laneStroke}"/>`;
   }).join('');
   const stashRoutes = stashPlacements.map((candidate, index) => {
@@ -1518,7 +1623,7 @@ function renderCommits() {
       const { stash } = placement;
       const stashIndex = stashPlacements.indexOf(placement);
       const stashCommit = state.snapshot.commits.find((candidate) => candidate.hash === stash.hash);
-      rows.push(`<button class="commit-row stash-row" data-stash-ref="${escapeHtml(stash.ref)}" data-stash-base-hash="${escapeHtml(stash.baseHash || '')}" title="${escapeHtml(`${stash.ref} · ${stash.branch || 'HEAD détaché'}`)}">
+      rows.push(`<button class="commit-row stash-row${stash.ref === state.selectedStash ? ' selected' : ''}" data-stash-ref="${escapeHtml(stash.ref)}" data-stash-base-hash="${escapeHtml(stash.baseHash || '')}" title="${escapeHtml(`${stash.ref} · ${stash.branch || 'HEAD détaché'}`)}">
         ${renderStashGraphRow(placement, graph.rows[index], stashPlacements, stashIndex, displayLaneCount, graphWidth, graphLaneShift, graph.workingTreeNode)}
         <span class="commit-main"><span class="commit-subject">${escapeHtml(stash.message)}</span><span class="commit-meta">${escapeHtml(stashCommit?.shortHash || stash.hash.slice(0, 7))}</span></span>
         <span class="commit-author">${escapeHtml(stashCommit?.author || '')}</span>
@@ -2383,20 +2488,31 @@ async function deleteStashAnalysis(stash) {
   toast('Analyse IA du stash supprimée');
 }
 
-async function selectStash(ref) {
+function selectStash(ref) {
   const stash = (state.snapshot.stashes || []).find((entry) => entry.ref === ref);
   if (!stash) return;
   state.selectedFile = null;
+  state.selectedCommit = null;
   state.selectedStash = ref;
-  renderStashes();
   renderStashDetail(stash);
-  $('#history-view').classList.remove('hidden');
-  $('#changes-view').classList.add('hidden');
-  $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === 'history'));
-  $('#history-view').innerHTML = `<div class="diff-preview stash-diff-preview"><header><div><p class="eyebrow">APERÇU DU STASH · ${escapeHtml(ref)}</p><h3>${escapeHtml(stash.message)}</h3></div><button id="close-diff-preview" type="button" class="icon-button" title="Fermer l’aperçu" aria-label="Fermer l’aperçu">×</button></header><pre id="left-diff-content">Chargement…</pre></div>`;
-  $('#close-diff-preview').addEventListener('click', closeDiffPreview);
-  const diff = await action('', () => window.forkline.stashDiff(ref).then(unwrap));
-  if (diff !== null && state.selectedStash === ref && $('#left-diff-content')) $('#left-diff-content').innerHTML = renderDiffMarkup(diff, 0, false);
+  focusStashInGraph(ref);
+}
+
+function focusStashInGraph(ref, behavior = 'smooth') {
+  const stash = (state.snapshot.stashes || []).find((entry) => entry.ref === ref);
+  if (!stash) return false;
+  if (state.hiddenStashHashes.delete(stash.hash)) saveHiddenStashHashes();
+  state.historyQuery = '';
+  if ($('#history-search')) $('#history-search').value = '';
+  setView('history');
+  renderStashes();
+  renderCommits();
+  const row = $$('[data-stash-ref]').find((candidate) => candidate.dataset.stashRef === ref);
+  if (!row) return false;
+  requestAnimationFrame(() => {
+    if (row.isConnected) row.scrollIntoView({ behavior, block: 'center', inline: 'nearest' });
+  });
+  return true;
 }
 
 async function runStashAction(operation, ref) {
@@ -2456,9 +2572,29 @@ async function toggleStage(file, staged) {
 }
 
 async function switchBranch(name) {
-  if (name === state.snapshot.head) return;
+  if (name === state.snapshot.head) return focusBranchInGraph(name);
   const result = await action(`Branche ${name} activée`, () => window.forkline.switchBranch(name).then(unwrap));
-  if (result) applySnapshot(result);
+  if (result) {
+    applySnapshot(result);
+    focusBranchInGraph(name);
+  }
+}
+
+function focusBranchInGraph(name, behavior = 'smooth') {
+  const branch = state.snapshot.branches.find((candidate) => !candidate.remote && candidate.name === name);
+  if (!branch) return false;
+  setView('history');
+  let row = $$('[data-hash]').find((candidate) => candidate.dataset.hash === branch.hash);
+  if (!row) {
+    state.historyQuery = '';
+    renderCommits();
+    row = $$('[data-hash]').find((candidate) => candidate.dataset.hash === branch.hash);
+  }
+  if (!row) return false;
+  requestAnimationFrame(() => {
+    if (row.isConnected) row.scrollIntoView({ behavior, block: 'center', inline: 'nearest' });
+  });
+  return true;
 }
 
 async function refresh(silent = false) {
@@ -2523,8 +2659,10 @@ async function handleRepositoryUpdate(snapshot) {
     showInspector('#worktree-detail');
   } else if (selectedCommit && snapshot.commits.some((commit) => commit.hash === selectedCommit)) {
     selectCommit(selectedCommit);
-  } else if (worktreeWasOpen) {
+  } else if (worktreeWasOpen && snapshot.status.files.length) {
     showInspector('#worktree-detail');
+  } else if (worktreeWasOpen) {
+    showInspector('#inspector-empty');
   }
 
   requestAnimationFrame(() => {
@@ -3041,6 +3179,7 @@ $('#confirm-upstream').addEventListener('click', async (event) => {
 });
 
 window.forkline.onRepositoryUpdated(handleRepositoryUpdate);
+bindWorkspaceColumnResizers();
 
 (async () => {
   const result = await action('', () => window.forkline.restoreRepository().then(unwrap));

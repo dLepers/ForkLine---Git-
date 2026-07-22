@@ -10,6 +10,8 @@
   --moss: #4fb982;
   --mustard: #8b7cf6;
   --white: #fffdf7;
+  --scrollbar-thumb: #536477;
+  --scrollbar-thumb-hover: #71859a;
   --body: "Nimbus Sans", "Liberation Sans", sans-serif;
   --display: "Bitstream Charter", "Nimbus Roman", serif;
 }
@@ -20,6 +22,17 @@ body { margin: 0; overflow: hidden; color: var(--ink); background: var(--ink); f
 button, input, textarea { font: inherit; }
 button { cursor: pointer; }
 .hidden { display: none !important; }
+
+:is(.nav-sections, .history-view, .branch-context-menu, .ai-command-tools small, .changes-column, .commit-detail, .worktree-detail, .stash-detail, .conflict-file-section.resolved-section, #diff-content, .diff-preview pre, .merge-code, .merge-output-code, .application-settings-panel, .rebase-plan, .stash-file-picker, .toast) {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-gutter: stable;
+}
+:is(.nav-sections, .history-view, .branch-context-menu, .ai-command-tools small, .changes-column, .commit-detail, .worktree-detail, .stash-detail, .conflict-file-section.resolved-section, #diff-content, .diff-preview pre, .merge-code, .merge-output-code, .application-settings-panel, .rebase-plan, .stash-file-picker, .toast)::-webkit-scrollbar { width: 8px; height: 8px; }
+:is(.nav-sections, .history-view, .branch-context-menu, .ai-command-tools small, .changes-column, .commit-detail, .worktree-detail, .stash-detail, .conflict-file-section.resolved-section, #diff-content, .diff-preview pre, .merge-code, .merge-output-code, .application-settings-panel, .rebase-plan, .stash-file-picker, .toast)::-webkit-scrollbar-track { background: transparent; }
+:is(.nav-sections, .history-view, .branch-context-menu, .ai-command-tools small, .changes-column, .commit-detail, .worktree-detail, .stash-detail, .conflict-file-section.resolved-section, #diff-content, .diff-preview pre, .merge-code, .merge-output-code, .application-settings-panel, .rebase-plan, .stash-file-picker, .toast)::-webkit-scrollbar-thumb { min-height: 34px; border: 2px solid transparent; border-radius: 8px; background: var(--scrollbar-thumb); background-clip: padding-box; }
+:is(.nav-sections, .history-view, .branch-context-menu, .ai-command-tools small, .changes-column, .commit-detail, .worktree-detail, .stash-detail, .conflict-file-section.resolved-section, #diff-content, .diff-preview pre, .merge-code, .merge-output-code, .application-settings-panel, .rebase-plan, .stash-file-picker, .toast)::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-thumb-hover); }
+:is(.nav-sections, .history-view, .branch-context-menu, .ai-command-tools small, .changes-column, .commit-detail, .worktree-detail, .stash-detail, .conflict-file-section.resolved-section, #diff-content, .diff-preview pre, .merge-code, .merge-output-code, .application-settings-panel, .rebase-plan, .stash-file-picker, .toast)::-webkit-scrollbar-corner { background: transparent; }
 
 .titlebar { height: 44px; padding: 0 150px 0 18px; display: flex; align-items: center; gap: 10px; color: var(--paper); background: var(--ink); -webkit-app-region: drag; }
 .titlebar strong { font-family: var(--display); letter-spacing: .02em; font-size: 19px; }
@@ -53,7 +66,13 @@ button { cursor: pointer; }
 .button-primary:hover { background: var(--accent-strong); }
 .button-small { padding: 8px 12px; font-size: 13px; }
 
-.workspace { height: calc(100vh - 44px); display: grid; grid-template-columns: 250px minmax(470px, 1fr) minmax(330px, 34%); grid-template-rows: minmax(0, 1fr); background: var(--paper); }
+.workspace { --sidebar-width: clamp(190px, 17vw, 250px); --inspector-width: clamp(270px, 34vw, 560px); position: relative; height: calc(100vh - 44px); display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--inspector-width); grid-template-rows: minmax(0, 1fr); background: var(--paper); }
+.workspace-resizer { position: absolute; top: 0; bottom: 0; z-index: 15; width: 9px; padding: 0; outline: none; cursor: col-resize; touch-action: none; transform: translateX(-50%); }
+.workspace-resizer::after { content: ""; position: absolute; inset: 0 3px; background: transparent; transition: background .12s ease; }
+.workspace-resizer:hover::after, .workspace-resizer:focus-visible::after, body.resizing-workspace .workspace-resizer::after { background: var(--accent); }
+.sidebar-resizer { left: var(--sidebar-width); }
+.inspector-resizer { left: calc(100% - var(--inspector-width)); }
+.resizing-workspace, .resizing-workspace * { cursor: col-resize !important; user-select: none !important; }
 .sidebar { min-width: 0; border-right: 1px solid rgba(255,255,255,.07); color: #d8d9d2; background: var(--ink-soft); }
 .repo-switcher { width: 100%; min-height: 74px; padding: 14px 15px; display: grid; grid-template-columns: 34px 1fr 16px; gap: 9px; align-items: center; text-align: left; border: 0; border-bottom: 1px solid rgba(255,255,255,.07); color: inherit; background: transparent; }
 .repo-switcher:hover { background: rgba(255,255,255,.04); }
@@ -180,10 +199,7 @@ button { cursor: pointer; }
 .toolbar .terminal-button { min-width: 74px; font-family: "Nimbus Mono", monospace; }
 .toolbar .icon-button { min-width: 42px; color: #8290a0; }
 .view { flex: 1; min-height: 0; }
-.history-view { flex: 1 1 auto; min-height: 0; overflow-y: scroll; overflow-x: hidden; color: #bdc5ce; background: #0e1217; scrollbar-color: #596572 #0e1217; scrollbar-width: thin; }
-.history-view::-webkit-scrollbar { width: 10px; }
-.history-view::-webkit-scrollbar-track { background: transparent; }
-.history-view::-webkit-scrollbar-thumb { border: 3px solid #0e1217; border-radius: 10px; background: #596572; }
+.history-view { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; color: #bdc5ce; background: #0e1217; }
 .history-tools { position: sticky; top: 0; z-index: 4; height: 38px; padding: 5px 10px; display: grid; grid-template-columns: 22px minmax(0,1fr) 28px; align-items: center; color: #778493; border-bottom: 1px solid rgba(255,255,255,.07); background: #151a21; }
 .history-tools input { min-width: 0; height: 28px; border: 0; outline: 0; color: #d8e1eb; background: transparent; font-size: 12px; }
 .history-tools button { height: 26px; border: 0; color: #7d8997; background: transparent; font-size: 18px; }
@@ -424,7 +440,7 @@ textarea:focus, dialog input:focus { border-color: var(--accent); box-shadow: 0 
 .comparison-bar button { min-height: 28px; padding: 4px 9px; border: 1px solid #59677a; border-radius: 3px; color: #d6dee7; background: #303947; font: 11px var(--body); }.comparison-bar button:disabled { opacity: .4; cursor: not-allowed; }
 .toast { width: min(520px, calc(100vw - 40px)); max-height: 240px; padding: 12px 14px; overflow: auto; white-space: pre-line; border-left: 4px solid var(--moss); color: var(--paper); background: #2a2e28; box-shadow: 0 12px 35px rgba(0,0,0,.24); font-size: 12px; animation: toast-in .2s ease-out; }
 .toast.error { border-color: #8b7cf6; }.toast strong { display: block; margin-bottom: 3px; }
-dialog { width: 430px; padding: 0; border: 0; border-radius: 6px; color: var(--ink); background: var(--paper); box-shadow: 0 24px 80px rgba(0,0,0,.45); }
+dialog { width: 430px; max-width: calc(100vw - 24px); padding: 0; border: 0; border-radius: 6px; color: var(--ink); background: var(--paper); box-shadow: 0 24px 80px rgba(0,0,0,.45); }
 dialog::backdrop { background: rgba(16,18,15,.7); backdrop-filter: blur(3px); }
 dialog form { padding: 26px; } dialog h3 { margin: 7px 0 22px; font: 400 24px var(--display); }.dialog-actions { margin-top: 20px; display: flex; justify-content: flex-end; gap: 8px; }
 .application-settings-dialog { width: min(820px, calc(100vw - 50px)); max-height: calc(100vh - 50px); overflow: hidden; }
@@ -462,13 +478,41 @@ dialog form { padding: 26px; } dialog h3 { margin: 7px 0 22px; font: 400 24px va
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 
 @media (max-width: 1180px) {
-  .workspace { grid-template-columns: 220px minmax(430px, 1fr) 320px; }
+  .workspace { --sidebar-width: clamp(180px, 18vw, 210px); --inspector-width: clamp(260px, 27vw, 320px); }
   .commit-row, .working-tree-row, .history-head { grid-template-columns: var(--graph-width, 76px) minmax(190px,1fr) 90px; }
   .commit-date, .history-head span:last-child { display: none; }
   .toolbar { padding-inline: 8px 4px; }
-  .toolbar-context { min-width: 190px; }
-  .toolbar-context-button { min-width: 94px; padding-inline: 7px; }
-  .toolbar .tool-button { min-width: 44px; padding-inline: 4px; }
-  .toolbar .terminal-button { min-width: 55px; }
-  .toolbar .icon-button { min-width: 38px; }
+  .toolbar-context { min-width: 150px; flex: 1 1 180px; }
+  .toolbar-context-button { min-width: 0; padding-inline: 7px; }
+  .toolbar-actions { min-width: 0; flex: 0 1 auto; }
+  .toolbar .tool-button, .toolbar .terminal-button { min-width: 36px; padding-inline: 4px; }
+  .toolbar .icon-button { min-width: 34px; }
+  .toolbar .tool-button span { display: none; }
+  .commit-detail { padding: 22px 18px; }
+  .stash-detail { padding-inline: 18px; }
+}
+
+@media (max-width: 900px) {
+  .workspace { --sidebar-width: 165px; --inspector-width: 240px; }
+  .repo-switcher { padding-inline: 10px; grid-template-columns: 30px minmax(0, 1fr) 12px; gap: 6px; }
+  .nav-sections { padding-inline: 6px; }
+  .toolbar { padding: 0; }
+  .toolbar-context { display: none; }
+  .toolbar-actions { width: 100%; flex: 1 1 auto; }
+  .toolbar .tool-button, .toolbar .terminal-button, .toolbar .icon-button { min-width: 28px; padding-inline: 2px; flex: 1 1 28px; }
+  .commit-row, .working-tree-row, .history-head { grid-template-columns: var(--graph-width, 76px) minmax(0, 1fr); }
+  .commit-author, .commit-date, .history-head span:nth-child(3), .history-head span:nth-child(4) { display: none; }
+  .commit-row, .working-tree-row { padding-right: 8px; }
+  .history-head { padding-right: 8px; }
+  .working-tree-summary { gap: 7px; }
+  .working-tree-stats { gap: 6px; }
+  .inspector-empty { padding: 20px; }
+  .commit-detail { padding: 18px 14px; }
+  .stash-detail { padding: 18px 14px; }
+  .worktree-header { padding-inline: 12px; }
+  .worktree-file-group h4, .worktree-file-group .file-list:empty::after { padding-left: 14px; }
+  .worktree-detail .file-row { padding-inline: 14px 10px; }
+  .application-settings-form { grid-template-columns: 170px minmax(0, 1fr); }
+  .application-settings-panel { padding: 20px; }
+  :is(.nav-sections, .history-view, .branch-context-menu, .ai-command-tools small, .changes-column, .commit-detail, .worktree-detail, .stash-detail, .conflict-file-section.resolved-section, #diff-content, .diff-preview pre, .merge-code, .merge-output-code, .application-settings-panel, .rebase-plan, .stash-file-picker, .toast)::-webkit-scrollbar { width: 6px; height: 6px; }
 }

@@ -27,6 +27,24 @@ test('keeps descendant branch tips parallel to the active branch until HEAD', ()
   assert.deepEqual(graph.workingTreeNode, { type: 'WorkingTreeNode', lane: 0, commitIndex: 3, position: 'top' });
 });
 
+test('activates the reserved branch lane only through the child connection that reaches it', () => {
+  const graph = layoutCommitGraph([
+    { hash: 'phpstan-tip', parents: ['phpstan-change'] },
+    { hash: 'phpstan-change', parents: ['develop-head'] },
+    { hash: 'develop-head', parents: ['root'] },
+    { hash: 'root', parents: [] },
+  ], { headHash: 'develop-head' });
+
+  assert.deepEqual(graph.rows.map((row) => row.lane), [1, 1, 0, 0]);
+  assert.deepEqual(graph.rows[1].connections.map(({ from, to }) => [from, to]), [[1, 0]]);
+  assert.equal(graph.rows[1].beforeVisible[0], false);
+  assert.equal(graph.rows[1].afterVisible[0], true);
+  assert.equal(graph.rows[2].beforeVisible[0], true);
+  assert.equal(graph.rows[1].connections[0].color, graph.rows[1].laneColor);
+  assert.equal(graph.rows[2].beforeLineColors[0], graph.rows[1].laneColor);
+  assert.equal(graph.rows[2].afterLineColors[0], graph.rows[2].laneColor);
+});
+
 test('keeps a linear history in one lane', () => {
   const graph = layoutCommitGraph([
     { hash: 'c', parents: ['b'] },
