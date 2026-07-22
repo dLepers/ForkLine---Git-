@@ -39,7 +39,7 @@ test('keeps a linear history in one lane', () => {
   assert.deepEqual(graph.rows.map((row) => row.anchorHash), ['c', 'b', 'a']);
 });
 
-test('draws a second lane for a merge parent and rejoins it', () => {
+test('draws a second lane for a merge parent without compacting through its joining curve', () => {
   const graph = layoutCommitGraph([
     { hash: 'merge', parents: ['main', 'feature'] },
     { hash: 'feature', parents: ['base'] },
@@ -52,8 +52,27 @@ test('draws a second lane for a merge parent and rejoins it', () => {
   assert.equal(graph.rows[1].lane, 1);
   assert.equal(graph.rows[2].lane, 0);
   assert.ok(graph.rows[2].connections.some(({ to }) => to === 1));
-  assert.deepEqual(graph.rows[2].transitions, [{ from: 1, to: 0, hash: 'base' }]);
-  assert.equal(graph.rows[3].lane, 0);
+  assert.deepEqual(graph.rows[2].transitions, []);
+  assert.equal(graph.rows[3].lane, 1);
+});
+
+test('defers compaction when an existing parent lane is reached diagonally', () => {
+  const graph = layoutCommitGraph([
+    { hash: 'active-head', parents: ['root'] },
+    { hash: 'develop-tip', parents: ['develop-change'] },
+    { hash: 'preprod-merge', parents: ['older-merge', 'develop-change', 'shared-parent'] },
+    { hash: 'develop-change', parents: ['shared-parent'] },
+    { hash: 'older-merge', parents: ['root', 'shared-parent'] },
+    { hash: 'shared-parent', parents: ['root'] },
+    { hash: 'root', parents: [] },
+  ], { headHash: 'active-head' });
+  const row = graph.rows[3];
+
+  assert.deepEqual(row.connections.map(({ from, to }) => [from, to]), [[1, 3]]);
+  assert.deepEqual(row.transitions, []);
+  assert.equal(row.after[1], null);
+  assert.equal(row.after[2], 'older-merge');
+  assert.equal(row.after[3], 'shared-parent');
 });
 
 test('allocates separate lanes to independent branch tips', () => {
@@ -132,6 +151,39 @@ test('does not expose a working tree node when the worktree is clean', () => {
   });
 
   assert.equal(graph.workingTreeNode, null);
+});
+
+test('stops the active branch at HEAD and reconnects it only while a working tree node exists', () => {
+  const commits = [
+    { hash: 'head', parents: ['root'] },
+    { hash: 'root', parents: [] },
+  ];
+  const options = { headHash: 'head' };
+  const clean = layoutCommitGraph(commits, { ...options, showWorkingTree: false });
+  const modified = layoutCommitGraph(commits, { ...options, showWorkingTree: true });
+  const cleanAgain = layoutCommitGraph(commits, { ...options, showWorkingTree: false });
+
+  assert.equal(clean.rows[0].hasVisibleChild, false);
+  assert.equal(clean.rows[1].hasVisibleChild, true);
+  assert.equal(clean.workingTreeNode, null);
+  assert.deepEqual(modified.workingTreeNode, { type: 'WorkingTreeNode', lane: 0, commitIndex: 0, position: 'top' });
+  assert.equal(cleanAgain.rows[0].hasVisibleChild, false);
+  assert.equal(cleanAgain.workingTreeNode, null);
+});
+
+test('keeps an older active branch lane reserved but invisible above its HEAD', () => {
+  const graph = layoutCommitGraph([
+    { hash: 'newer-other-tip', parents: ['root'] },
+    { hash: 'master-head', parents: ['root'] },
+    { hash: 'root', parents: [] },
+  ], { headHash: 'master-head', showWorkingTree: false });
+
+  assert.deepEqual(graph.rows.map((row) => row.lane), [1, 0, 0]);
+  assert.equal(graph.rows[0].before[0], 'master-head');
+  assert.equal(graph.rows[0].beforeVisible[0], false);
+  assert.equal(graph.rows[0].afterVisible[0], false);
+  assert.equal(graph.rows[1].beforeVisible[0], false);
+  assert.equal(graph.rows[1].afterVisible[0], true);
 });
 
 test('keeps detached HEAD separate from the branch that owns an auto stash', () => {

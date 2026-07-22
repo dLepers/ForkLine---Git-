@@ -8,7 +8,7 @@
     return freeLane === -1 ? lanes.length : freeLane;
   }
 
-  function compactLanes(lanes, laneColors) {
+  function compactLanes(lanes, laneColors, laneVisibility) {
     const transitions = [];
     const transitionColors = [];
     let target = 0;
@@ -20,14 +20,17 @@
         transitionColors.push(laneColors[source]);
         lanes[target] = lanes[source];
         laneColors[target] = laneColors[source];
+        laneVisibility[target] = laneVisibility[source];
         lanes[source] = null;
         laneColors[source] = null;
+        laneVisibility[source] = false;
       }
       target += 1;
     }
     while (lanes.length && lanes[lanes.length - 1] == null) {
       lanes.pop();
       laneColors.pop();
+      laneVisibility.pop();
     }
     return { transitions, transitionColors };
   }
@@ -118,6 +121,7 @@
   function layoutCommitGraph(commits, options = {}) {
     const lanes = [];
     const laneColors = [];
+    const laneVisibility = [];
     const rows = [];
     let laneCount = 1;
     let nextColor = 0;
@@ -154,6 +158,7 @@
     if (options.headHash && commits.some((commit) => commit.hash === options.headHash)) {
       lanes[0] = options.headHash;
       laneColors[0] = nextColor;
+      laneVisibility[0] = false;
       nextColor += 1;
     }
 
@@ -170,18 +175,21 @@
         lane = newLane(lanes);
         lanes[lane] = commit.hash;
         laneColors[lane] = nextColor;
+        laneVisibility[lane] = true;
         nextColor += 1;
         decision = "Création d'une nouvelle lane (tête de branche)";
       }
 
       const before = [...lanes];
       const beforeColors = [...laneColors];
+      const beforeVisible = [...laneVisibility];
       const laneColor = laneColors[lane];
 
       // La lane du commit courant se libère : elle sera immédiatement
       // réoccupée ci-dessous par le premier parent (même colonne, ligne droite).
       lanes[lane] = null;
       laneColors[lane] = null;
+      laneVisibility[lane] = false;
       const connections = [];
       const joins = [];
 
@@ -191,8 +199,10 @@
           const joiningColor = laneColors[target];
           lanes[target] = null;
           laneColors[target] = null;
+          laneVisibility[target] = false;
           lanes[lane] = parent;
           laneColors[lane] = laneColor;
+          laneVisibility[lane] = true;
           connections.push({ from: lane, to: lane, parentIndex, fromColor: laneColor, toColor: laneColor });
           joins.push({ from: target, to: lane, hash: parent, color: joiningColor });
           return;
@@ -204,18 +214,28 @@
             target = lane;
             lanes[target] = parent;
             laneColors[target] = laneColor;
+            laneVisibility[target] = true;
           } else {
             // Le parent secondaire utilise la colonne libre la plus proche.
             target = newLane(lanes);
             lanes[target] = parent;
             laneColors[target] = nextColor;
+            laneVisibility[target] = true;
             nextColor += 1;
           }
         }
+        laneVisibility[target] = true;
         connections.push({ from: lane, to: target, parentIndex, fromColor: laneColor, toColor: laneColors[target] });
       });
 
-      const { transitions, transitionColors } = compactLanes(lanes, laneColors);
+      // Une connexion oblique doit atteindre sa lane parente avant toute
+      // compaction. La déplacer sur la même frontière produirait un crochet
+      // sans signification topologique. La compaction est reportée à la
+      // prochaine ligne ne portant que des continuités verticales.
+      const canCompact = connections.every(({ from, to }) => from === to);
+      const { transitions, transitionColors } = canCompact
+        ? compactLanes(lanes, laneColors, laneVisibility)
+        : { transitions: [], transitionColors: [] };
       transitions.forEach((transition) => debugLog(debug, 'LANE_MOVE', {
         row: rowIndex,
         hash: transition.hash,
@@ -228,6 +248,7 @@
 
       const after = [...lanes];
       const afterColors = [...laneColors];
+      const afterVisible = [...laneVisibility];
       const nextLane = commit.parents.length ? after.indexOf(commit.parents[0]) : -1;
       const parentLanes = commit.parents.map((parent) => ({ hash: parent, lane: after.indexOf(parent) }));
       const childLanes = (children.get(commit.hash) || []).map((child) => ({
@@ -269,10 +290,13 @@
         lane,
         laneColor,
         startsHere,
+        hasVisibleChild: childLanes.length > 0,
         before,
         beforeColors,
+        beforeVisible,
         after,
         afterColors,
+        afterVisible,
         transitions,
         transitionColors,
         connections,

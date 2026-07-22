@@ -1143,14 +1143,18 @@ function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTre
   });
 
   row.before.forEach((value, lane) => {
-    if (value && !(row.startsHere && lane === row.lane)) {
+    const connectsToWorkingTree = workingTreeNode && lane === workingTreeNode.lane && rowIndex === workingTreeNode.commitIndex;
+    const continuesAbove = lane !== row.lane || row.hasVisibleChild || connectsToWorkingTree;
+    const visibleAbove = row.beforeVisible[lane] || connectsToWorkingTree;
+    if (value && visibleAbove && continuesAbove) {
       const workingStroke = workingTreeNode && lane === workingTreeNode.lane && rowIndex <= workingTreeNode.commitIndex;
       paths.push(`<path${isStash && lane === row.lane ? ' class="stash-edge"' : ''} d="M ${graphX(lane)} 0 L ${graphX(lane)} ${centerY}" stroke="${workingStroke ? '#24b4c2' : graphColor(row.beforeColors[lane])}"${workingStroke ? ' stroke-dasharray="2 5"' : ''}/> `);
     }
   });
+  const transitionTargets = new Set((row.transitions || []).map(({ to }) => to));
   row.after.forEach((value, lane) => {
     const continuesThroughRow = row.before[lane] || lane === row.lane;
-    if (value && continuesThroughRow) {
+    if (value && row.afterVisible[lane] && continuesThroughRow && !transitionTargets.has(lane)) {
       const workingStroke = workingTreeNode && lane === workingTreeNode.lane && rowIndex < workingTreeNode.commitIndex;
       paths.push(`<path${isStash && lane === row.lane ? ' class="stash-edge"' : ''} d="M ${graphX(lane)} ${centerY} L ${graphX(lane)} 44" stroke="${workingStroke ? '#24b4c2' : graphColor(row.afterColors[lane])}"${workingStroke ? ' stroke-dasharray="2 5"' : ''}/> `);
     }
@@ -1164,7 +1168,7 @@ function renderGraphRow(row, laneCount, commit, graphWidth, rowIndex, workingTre
   });
   row.transitions?.forEach(({ from, to }, transitionIndex) => {
     if (from === to) return;
-    paths.push(`<path class="graph-transition" d="M ${graphX(from)} 44 C ${graphX(from)} 44, ${graphX(to)} 44, ${graphX(to)} 44" stroke="${graphColor(row.transitionColors?.[transitionIndex])}"/>`);
+    paths.push(`<path class="graph-transition" d="M ${graphX(from)} ${centerY} C ${graphX(from)} 34, ${graphX(to)} 32, ${graphX(to)} 44" stroke="${graphColor(row.transitionColors?.[transitionIndex])}"/>`);
   });
 
   if (window.forkline.debugGraphLayout) {
@@ -1244,7 +1248,7 @@ function bindGraphBranchInteractions() {
   });
 }
 
-function renderStashGraphRow(placement, insertionRow, stashPlacements, stashIndex, laneCount, graphWidth, graphLaneShift = 0) {
+function renderStashGraphRow(placement, insertionRow, stashPlacements, stashIndex, laneCount, graphWidth, graphLaneShift = 0, workingTreeNode = null) {
   const { stash, lane: stashLane, baseRow } = placement;
   const spacing = 16;
   const laneWidth = graphLaneWidth(laneCount);
@@ -1255,6 +1259,10 @@ function renderStashGraphRow(placement, insertionRow, stashPlacements, stashInde
   const color = graphColor(baseRow.laneColor);
   const activeLanes = insertionRow.before.map((hash, lane) => {
     if (!hash) return '';
+    const connectsToWorkingTree = workingTreeNode && lane === workingTreeNode.lane && placement.displayIndex === workingTreeNode.commitIndex;
+    const continuesAbove = lane !== insertionRow.lane || insertionRow.hasVisibleChild || connectsToWorkingTree;
+    const visibleAbove = insertionRow.beforeVisible[lane] || connectsToWorkingTree;
+    if (!visibleAbove || !continuesAbove) return '';
     const laneX = laneOffset + 6 + (lane + graphLaneShift) * spacing;
     const laneStroke = graphColor(insertionRow.beforeColors[lane]);
     return `<path class="stash-lane-continuation" d="M ${laneX} 0 V 44" stroke="${laneStroke}"/>`;
@@ -1511,7 +1519,7 @@ function renderCommits() {
       const stashIndex = stashPlacements.indexOf(placement);
       const stashCommit = state.snapshot.commits.find((candidate) => candidate.hash === stash.hash);
       rows.push(`<button class="commit-row stash-row" data-stash-ref="${escapeHtml(stash.ref)}" data-stash-base-hash="${escapeHtml(stash.baseHash || '')}" title="${escapeHtml(`${stash.ref} · ${stash.branch || 'HEAD détaché'}`)}">
-        ${renderStashGraphRow(placement, graph.rows[index], stashPlacements, stashIndex, displayLaneCount, graphWidth, graphLaneShift)}
+        ${renderStashGraphRow(placement, graph.rows[index], stashPlacements, stashIndex, displayLaneCount, graphWidth, graphLaneShift, graph.workingTreeNode)}
         <span class="commit-main"><span class="commit-subject">${escapeHtml(stash.message)}</span><span class="commit-meta">${escapeHtml(stashCommit?.shortHash || stash.hash.slice(0, 7))}</span></span>
         <span class="commit-author">${escapeHtml(stashCommit?.author || '')}</span>
         <span class="commit-date" title="${escapeHtml(new Date(stash.date).toLocaleString('fr'))}">${relativeTime(stash.date)}</span>

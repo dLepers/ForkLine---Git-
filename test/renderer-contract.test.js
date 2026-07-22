@@ -207,13 +207,33 @@ test('contextual tag creation uses a shared validated dialog and selected revisi
   assert.match(html, /id="tag-error"[^>]*role="alert"/);
 });
 
-test('stash rows preserve every active graph lane', () => {
+test('stash rows preserve only graph lanes that connect to a visible node above', () => {
   const stashRenderer = renderer.match(/function renderStashGraphRow[\s\S]*?(?=\nfunction renderWorkingTreeRow)/)?.[0] || '';
   assert.match(stashRenderer, /insertionRow\.before\.map/);
   assert.match(stashRenderer, /insertionRow\.beforeColors\[lane\]/);
+  assert.match(stashRenderer, /lane !== insertionRow\.lane \|\| insertionRow\.hasVisibleChild \|\| connectsToWorkingTree/);
+  assert.match(stashRenderer, /insertionRow\.beforeVisible\[lane\] \|\| connectsToWorkingTree/);
+  assert.match(stashRenderer, /if \(!visibleAbove \|\| !continuesAbove\) return ''/);
   assert.match(stashRenderer, /stash-lane-continuation/);
   assert.match(stashRenderer, /stash-route/);
   assert.match(stashRenderer, /class="stash-node" data-stash-node=/);
+});
+
+test('active branch lines stop at HEAD unless a visible node exists above it', () => {
+  const graphRenderer = renderer.match(/function renderGraphRow[\s\S]*?(?=\nfunction hideGraphNodeTooltip)/)?.[0] || '';
+  assert.match(graphRenderer, /const continuesAbove = lane !== row\.lane \|\| row\.hasVisibleChild \|\| connectsToWorkingTree/);
+  assert.match(graphRenderer, /const visibleAbove = row\.beforeVisible\[lane\] \|\| connectsToWorkingTree/);
+  assert.match(graphRenderer, /if \(value && visibleAbove && continuesAbove\)/);
+  assert.match(graphRenderer, /if \(value && row\.afterVisible\[lane\] && continuesThroughRow && !transitionTargets\.has\(lane\)\)/);
+  assert.match(renderer, /renderStashGraphRow\(placement, graph\.rows\[index\],[^\n]*graph\.workingTreeNode\)/);
+});
+
+test('lane compaction curves occupy the lower half-row instead of folding at its boundary', () => {
+  const graphRenderer = renderer.match(/function renderGraphRow[\s\S]*?(?=\nfunction hideGraphNodeTooltip)/)?.[0] || '';
+  assert.match(graphRenderer, /const transitionTargets = new Set/);
+  assert.match(graphRenderer, /!transitionTargets\.has\(lane\)/);
+  assert.match(graphRenderer, /class="graph-transition" d="M \$\{graphX\(from\)\} \$\{centerY\} C/);
+  assert.doesNotMatch(graphRenderer, /class="graph-transition" d="M \$\{graphX\(from\)\} 44 C/);
 });
 
 test('stash rows follow their timestamp and route back to their base commit', () => {
